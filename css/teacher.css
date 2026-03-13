@@ -1,0 +1,429 @@
+/* === Teacher Screen === */
+.teacher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: var(--surface);
+  border-bottom: none;
+  box-shadow: var(--shadow);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.teacher-logo {
+  font-family: var(--font);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: -0.02em;
+}
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.teacher-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* === Settings Panel === */
+.settings-panel {
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+.settings-panel::-webkit-scrollbar { width: 4px; }
+.settings-panel::-webkit-scrollbar-track { background: transparent; }
+.settings-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+.settings-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--text-light);
+}
+
+/* Layout Tabs */
+.layout-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 0.75rem;
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 4px;
+}
+.tab {
+  flex: 1;
+  padding: 0.5rem 0.5rem;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  color: var(--text-light);
+}
+.tab.active {
+  background: var(--primary);
+  color: white;
+  box-shadow: var(--shadow);
+}
+.tab:hover:not(.active) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Layout Options */
+.layout-options-wrapper {
+  overflow: hidden;
+}
+.layout-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  animation: slideDown 0.25s ease forwards;
+}
+.layout-options label {
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.layout-options input[type="number"] {
+  width: 60px;
+}
+
+/* =========================================
+   Custom Layout - Side Tools
+   ========================================= */
+.custom-side-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tool-group-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tool-btn-full {
+  width: 100%;
+  justify-content: center;
+}
+
+.tool-btn-row {
+  display: flex;
+  gap: 0.35rem;
+}
+.tool-btn-row .btn {
+  flex: 1;
+  justify-content: center;
+  font-size: 0.72rem;
+}
+
+.tool-group-danger {
+  margin-top: 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Status bar */
+.custom-status-bar {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  border: none;
+}
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.status-item strong {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.status-item svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.custom-seat-warning {
+  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+.custom-seat-warning.warning-over {
+  background: var(--danger-light);
+  color: #991B1B;
+  border: none;
+}
+.custom-seat-warning.warning-under {
+  background: var(--warning-light);
+  color: #92400E;
+  border: none;
+}
+.custom-seat-warning.warning-ok {
+  background: var(--success-light);
+  color: #065F46;
+  border: none;
+}
+
+/* =========================================
+   Custom Editor
+   ========================================= */
+.custom-editor {
+  width: 100%;
+}
+
+.custom-editor-canvas-wrap {
+  position: relative;
+  width: 100%;
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.2s;
+}
+.custom-editor-canvas-wrap:hover {
+  box-shadow: var(--shadow-md);
+}
+
+#custom-canvas {
+  display: block;
+  width: 100%;
+  max-height: 500px;
+  cursor: crosshair;
+}
+#custom-canvas:focus {
+  outline: none;
+}
+.custom-editor-canvas-wrap:focus-within {
+  box-shadow: 0 0 0 3px var(--primary-glow), var(--shadow-md);
+}
+
+/* Editor hints bar */
+.custom-editor-hints {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  padding: 0.5rem 0;
+  flex-wrap: wrap;
+}
+.editor-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--text-light);
+}
+.editor-hint kbd {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.65rem;
+  font-family: var(--font);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Custom preview container (for grid preview) */
+.custom-preview {
+  margin: 0 auto;
+}
+
+/* =========================================
+   Fixed Seat / Constraint Forms
+   ========================================= */
+.fixed-seat-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.fixed-seat-form select {
+  flex: 1;
+  min-width: 120px;
+}
+
+.constraint-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.constraint-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.constraint-row select {
+  flex: 1;
+  min-width: 90px;
+}
+.separator-icon {
+  color: var(--text-light);
+  font-size: 1.1rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Multi-select dropdown */
+.multi-select-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+}
+.multi-select-toggle {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  color: var(--text-light);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s;
+}
+.multi-select-toggle:hover {
+  border-color: var(--primary);
+}
+.multi-select-toggle.has-selection {
+  color: var(--text);
+  font-weight: 500;
+}
+.multi-select-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  margin-top: 4px;
+}
+.multi-select-dropdown.open {
+  display: block;
+}
+.multi-select-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.multi-select-item:hover {
+  background: var(--bg);
+}
+.multi-select-item input[type="checkbox"] {
+  accent-color: var(--primary);
+}
+.constraint-row label {
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+.constraint-row input[type="number"] {
+  width: 50px;
+}
+
+/* =========================================
+   Preview Panel
+   ========================================= */
+.preview-panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+  border: none;
+  position: sticky;
+  top: 80px;
+  align-self: start;
+}
+.preview-actions {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+/* Teacher seat grid sizing */
+#teacher-seat-grid .seat {
+  width: 64px;
+  height: 48px;
+  font-size: 0.75rem;
+}
+#teacher-seat-grid .seat-pair-group .seat {
+  width: 60px;
+  height: 44px;
+}
+
+/* === Clickable seat guide for teacher === */
+#teacher-seat-grid .seat.clickable-guide {
+  animation: pulse 1.5s ease-in-out infinite;
+  border-color: var(--primary);
+  cursor: pointer;
+}
+
+/* =========================================
+   Responsive
+   ========================================= */
+@media (max-width: 900px) {
+  .teacher-layout {
+    grid-template-columns: 1fr;
+  }
+  .preview-panel {
+    position: static;
+  }
+  .teacher-header {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .custom-editor-hints {
+    gap: 0.5rem;
+  }
+}

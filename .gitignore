@@ -1,0 +1,16 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+
+# Claude
+.claude/
+
+# Local data exports
+*.jsonl
+자리배치_*.json
+자리배치_*.png

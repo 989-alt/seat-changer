@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>자리바꾸기</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; script-src 'self'; img-src 'self' blob: data:;">
+  <link rel="stylesheet" href="css/common.css">
+  <link rel="stylesheet" href="css/teacher.css">
+  <link rel="stylesheet" href="css/student.css">
+</head>
+<body>
+  <!-- Toast Container -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- Confirm Modal -->
+  <div id="confirm-modal" class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <p class="confirm-message"></p>
+      <div class="modal-actions">
+        <button class="btn btn-outline confirm-no">취소</button>
+        <button class="btn btn-primary confirm-yes">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 교사 설정 화면 -->
+  <div id="teacher-screen" class="screen" style="display:none">
+    <header class="teacher-header">
+      <h1 class="teacher-logo">자리바꾸기 <span class="badge">교사 설정</span></h1>
+      <div class="header-actions">
+        <button id="btn-export" class="btn btn-outline btn-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          설정 내보내기
+        </button>
+        <button id="btn-import" class="btn btn-outline btn-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          설정 가져오기
+        </button>
+        <input type="file" id="import-file" accept=".json" style="display:none">
+        <a href="#student" class="btn btn-accent btn-sm">
+          학생 화면으로
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <div class="teacher-layout">
+      <!-- 왼쪽: 설정 패널 -->
+      <aside class="settings-panel">
+        <!-- Step 1: 학생 명단 -->
+        <section class="card" id="roster-section">
+          <h2><span class="step-badge">1</span> 학생 명단 <span id="student-count" class="count-badge">0명</span></h2>
+          <textarea id="roster-input" placeholder="한 줄에 한 명씩 입력&#10;예:&#10;김민수&#10;이지은&#10;박서준" rows="10"></textarea>
+          <button id="btn-save-roster" class="btn btn-primary">명단 저장</button>
+        </section>
+
+        <!-- Step 2: 배치 유형 -->
+        <section class="card" id="layout-section">
+          <h2><span class="step-badge">2</span> 배치 유형</h2>
+          <div class="layout-tabs" role="tablist">
+            <button class="tab active" data-layout="exam" role="tab" aria-selected="true">시험대형</button>
+            <button class="tab" data-layout="pair" role="tab" aria-selected="false">짝대형</button>
+            <button class="tab" data-layout="ushape" role="tab" aria-selected="false">U대형</button>
+            <button class="tab" data-layout="custom" role="tab" aria-selected="false">자유배치</button>
+          </div>
+          <div class="layout-options-wrapper">
+            <div class="layout-options" id="grid-options">
+              <label>열 수: <input type="number" id="col-count" min="1" max="12" value="6"></label>
+              <label>행 수: <input type="number" id="row-count" min="1" max="12" value="5"></label>
+            </div>
+            <div class="layout-options custom-layout-options" id="custom-options" style="display:none">
+              <!-- 좌측: 간결한 도구 카드 -->
+              <div class="custom-side-tools">
+                <div class="tool-group">
+                  <span class="tool-group-label">책상 추가</span>
+                  <button id="btn-add-desk" class="btn btn-sm btn-outline tool-btn-full">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    1개 추가
+                  </button>
+                  <button id="btn-add-desks-auto" class="btn btn-sm btn-primary tool-btn-full">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                    학생 수만큼 자동 배치
+                  </button>
+                </div>
+
+                <div class="tool-group">
+                  <span class="tool-group-label">편집</span>
+                  <div class="tool-btn-row">
+                    <button id="btn-undo-desk" class="btn btn-sm btn-ghost" title="되돌리기 (Ctrl+Z)" disabled>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                      되돌리기
+                    </button>
+                    <button id="btn-redo-desk" class="btn btn-sm btn-ghost" title="다시 실행 (Ctrl+Y)" disabled>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
+                      다시실행
+                    </button>
+                  </div>
+                  <button id="btn-delete-desk" class="btn btn-sm btn-outline tool-btn-full" title="선택 책상 삭제" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    선택 책상 삭제
+                  </button>
+                </div>
+
+                <div class="tool-group">
+                  <span class="tool-group-label">상태</span>
+                  <div class="custom-status-bar">
+                    <span class="status-item">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 14h20"/></svg>
+                      책상 <strong id="desk-count">0</strong>개
+                    </span>
+                    <span class="status-item">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                      학생 <strong id="custom-student-count">0</strong>명
+                    </span>
+                  </div>
+                  <div id="custom-seat-warning" class="custom-seat-warning" style="display:none"></div>
+                </div>
+
+                <div class="tool-group tool-group-danger">
+                  <button id="btn-clear-desks" class="btn btn-sm btn-outline btn-danger tool-btn-full">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                    전체 삭제
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 학생 수 / 좌석 수 불일치 경고 -->
+          <div id="seat-warning" class="warning-banner" style="display:none"></div>
+          <button id="btn-save-layout" class="btn btn-primary">배치 저장</button>
+        </section>
+
+        <!-- Step 3: 고정 자리 -->
+        <section class="card" id="fixed-section">
+          <h2><span class="step-badge">3</span> 고정 자리</h2>
+          <div class="fixed-seat-form">
+            <select id="fixed-student-select" aria-label="고정 자리 학생 선택">
+              <option value="">학생 선택...</option>
+            </select>
+            <label>→ <input type="number" id="fixed-seat-number" min="1" placeholder="자리 번호" style="width:70px" aria-label="자리 번호">번</label>
+            <button id="btn-add-fixed" class="btn btn-sm btn-primary">고정</button>
+          </div>
+          <ul id="fixed-seat-list" class="rule-list"></ul>
+        </section>
+
+        <!-- Step 4: 분리 규칙 -->
+        <section class="card" id="constraint-section">
+          <h2><span class="step-badge">4</span> 분리 규칙</h2>
+          <div class="constraint-form">
+            <div class="constraint-row">
+              <select id="sep-student-a" aria-label="기준 학생"><option value="">기준 학생</option></select>
+              <span class="separator-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              </span>
+              <div class="multi-select-wrap" id="sep-student-b-wrap">
+                <button type="button" class="multi-select-toggle" id="sep-student-b-toggle">분리할 학생 선택</button>
+                <div class="multi-select-dropdown" id="sep-student-b-dropdown"></div>
+              </div>
+            </div>
+            <div class="constraint-row">
+              <label>최소 <input type="number" id="sep-distance" min="1" max="5" value="2">칸 떨어뜨리기</label>
+              <button id="btn-add-sep" class="btn btn-sm btn-primary">규칙 추가</button>
+            </div>
+          </div>
+          <ul id="sep-rule-list" class="rule-list"></ul>
+        </section>
+      </aside>
+
+      <!-- 오른쪽: 미리보기 -->
+      <main class="preview-panel">
+        <h2 id="preview-title">배치도 미리보기</h2>
+        <div id="teacher-seat-grid" class="seat-grid-container"></div>
+
+        <!-- 자유배치 캔버스 편집기 (우측에 표시) -->
+        <div id="custom-editor" class="custom-editor" style="display:none">
+          <div class="custom-editor-canvas-wrap">
+            <canvas id="custom-canvas" width="600" height="500"></canvas>
+          </div>
+          <div class="custom-editor-hints">
+            <span class="editor-hint"><kbd>드래그</kbd> 이동</span>
+            <span class="editor-hint"><kbd>클릭</kbd> 선택</span>
+            <span class="editor-hint"><kbd>더블클릭</kbd> 삭제</span>
+            <span class="editor-hint"><kbd>Ctrl+Z</kbd> 되돌리기</span>
+          </div>
+        </div>
+
+        <div class="preview-actions">
+          <button id="btn-preview-randomize" class="btn btn-primary">미리 뽑기 테스트</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 학생 공개 화면 -->
+  <div id="student-screen" class="screen" style="display:none">
+    <div class="student-container">
+      <h1 class="student-title">자리바꾸기</h1>
+
+      <!-- 빈 상태 안내 -->
+      <div id="student-empty-state" class="empty-state" style="display:none">
+        <svg class="empty-icon-svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+        <p class="empty-text">아직 학생 명단이 등록되지 않았어요</p>
+        <p class="hint">교사 설정에서 명단과 배치를 먼저 설정해 주세요</p>
+      </div>
+
+      <div id="student-seat-grid" class="seat-grid-container student-grid"></div>
+
+      <div class="student-actions">
+        <button id="btn-draw" class="btn btn-draw">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="18" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/><circle cx="18" cy="18" r="1" fill="currentColor"/></svg>
+          자리 뽑기!
+        </button>
+        <button id="btn-redraw" class="btn btn-redraw" style="display:none">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
+          다시 뽑기
+        </button>
+      </div>
+
+      <div class="student-toolbar" style="display:none">
+        <button id="btn-save-result" class="btn btn-ghost btn-sm" title="결과 저장 (JSON)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          결과 저장
+        </button>
+        <button id="btn-save-image" class="btn btn-ghost btn-sm" title="이미지로 저장">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          이미지 저장
+        </button>
+        <button id="btn-load-result" class="btn btn-ghost btn-sm" title="이전 결과 불러오기">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          결과 불러오기
+        </button>
+        <input type="file" id="result-import-file" accept=".json" style="display:none">
+        <button id="btn-print" class="btn btn-ghost btn-sm" title="결과 인쇄">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          인쇄
+        </button>
+        <button id="btn-fullscreen" class="btn btn-ghost btn-sm" title="전체 화면">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          전체 화면
+        </button>
+      </div>
+
+      <a href="#teacher" class="teacher-link-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        교사 설정으로 돌아가기
+      </a>
+    </div>
+  </div>
+
+  <script src="js/bundle.js"></script>
+</body>
+</html>
