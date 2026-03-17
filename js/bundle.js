@@ -17,7 +17,12 @@ function createDefaultData() {
     },
     fixedSeats: [],
     separationRules: [],
-    lastAssignment: null
+    lastAssignment: null,
+    studentGenders: {},
+    genderRule: 'none',
+    assignmentHistory: [],
+    historyExcludeCount: 1,
+    useHistoryExclusion: true
   };
 }
 
@@ -100,7 +105,12 @@ var store = {
         layoutSettings: Object.assign({}, defaults.layoutSettings, parsed.layoutSettings || {}),
         fixedSeats: Array.isArray(parsed.fixedSeats) ? parsed.fixedSeats : [],
         separationRules: Array.isArray(parsed.separationRules) ? parsed.separationRules : [],
-        lastAssignment: null
+        lastAssignment: null,
+        studentGenders: (typeof parsed.studentGenders === 'object' && parsed.studentGenders) ? parsed.studentGenders : {},
+        genderRule: ['none','same','mixed'].indexOf(parsed.genderRule) !== -1 ? parsed.genderRule : 'none',
+        assignmentHistory: Array.isArray(parsed.assignmentHistory) ? parsed.assignmentHistory : [],
+        historyExcludeCount: [1,2,3].indexOf(parsed.historyExcludeCount) !== -1 ? parsed.historyExcludeCount : 1,
+        useHistoryExclusion: parsed.useHistoryExclusion !== false
       };
       data.classSize = data.students.length;
       this.save(data);
@@ -189,7 +199,7 @@ function escapeHTML(str) {
 }
 
 function manhattanDistance(pos1, pos2) {
-  return Math.max(Math.abs(pos1.row - pos2.row), Math.abs(pos1.col - pos2.col));
+  return Math.abs(pos1.row - pos2.row) + Math.abs(pos1.col - pos2.col);
 }
 
 // === layouts/exam-layout.js ===
@@ -976,6 +986,44 @@ function initRoster() {
     countEl.textContent = names.length + '\uBA85';
   });
 
+  // Gender list
+  var genderListEl = document.getElementById('gender-list');
+
+  function renderGenderList() {
+    if (!genderListEl) return;
+    var data2 = store.load();
+    if (data2.students.length === 0) {
+      genderListEl.innerHTML = '';
+      return;
+    }
+    var genders = data2.studentGenders || {};
+    var html = '<h3 class="gender-list-title">\uC131\uBCC4 \uC9C0\uC815</h3>';
+    data2.students.forEach(function(name) {
+      var g = genders[name] || '';
+      html += '<div class="gender-row" data-student="' + escapeHTML(name) + '">'
+        + '<span class="gender-student-name">' + escapeHTML(name) + '</span>'
+        + '<label class="gender-radio"><input type="radio" name="gender-' + escapeHTML(name) + '" value="M"' + (g === 'M' ? ' checked' : '') + '> \uB0A8</label>'
+        + '<label class="gender-radio"><input type="radio" name="gender-' + escapeHTML(name) + '" value="F"' + (g === 'F' ? ' checked' : '') + '> \uB140</label>'
+        + '<label class="gender-radio"><input type="radio" name="gender-' + escapeHTML(name) + '" value=""' + (g === '' ? ' checked' : '') + '> \uBBF8\uC9C0\uC815</label>'
+        + '</div>';
+    });
+    genderListEl.innerHTML = html;
+
+    genderListEl.querySelectorAll('input[type="radio"]').forEach(function(radio) {
+      radio.addEventListener('change', function() {
+        var d = store.load();
+        var studentGenders = Object.assign({}, d.studentGenders || {});
+        var studentName = radio.closest('.gender-row').dataset.student;
+        if (radio.value) {
+          studentGenders[studentName] = radio.value;
+        } else {
+          delete studentGenders[studentName];
+        }
+        store.update({ studentGenders: studentGenders });
+      });
+    });
+  }
+
   saveBtn.addEventListener('click', function() {
     var names = validateStudents(textarea.value.split('\n'));
 
@@ -1000,18 +1048,30 @@ function initRoster() {
       }
     });
 
+    // Clean up gender info for removed students
+    var currentGenders = store.load().studentGenders || {};
+    var cleanedGenders = {};
+    uniqueNames.forEach(function(name) {
+      if (currentGenders[name]) cleanedGenders[name] = currentGenders[name];
+    });
+
     store.update({
       students: uniqueNames,
       classSize: uniqueNames.length,
       fixedSeats: store.load().fixedSeats.filter(function(f) { return uniqueNames.indexOf(f.studentName) !== -1; }),
       separationRules: store.load().separationRules.filter(function(r) {
         return uniqueNames.indexOf(r.studentA) !== -1 && uniqueNames.indexOf(r.studentB) !== -1;
-      })
+      }),
+      studentGenders: cleanedGenders
     });
     countEl.textContent = uniqueNames.length + '\uBA85';
     window.dispatchEvent(new CustomEvent('roster-updated'));
+    renderGenderList();
     showToast(uniqueNames.length + '\uBA85\uC758 \uD559\uC0DD \uBA85\uB2E8\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.', 'success');
   });
+
+  renderGenderList();
+  window.addEventListener('roster-updated', renderGenderList);
 }
 
 // === components/fixed-seat-editor.js ===
@@ -1148,6 +1208,13 @@ function initConstraintEditor() {
     var data = store.load();
     populateMultiSelect(bDropdown, bToggle, data.students, selectA.value);
   });
+
+  // Distance hint
+  var distHint = document.createElement('p');
+  distHint.className = 'hint';
+  distHint.style.margin = '0';
+  distHint.textContent = '(\uAC00\uB85C\xB7\uC138\uB85C \uCE78 \uC218 \uD569, \uB300\uAC01\uC120=2\uCE78)';
+  distInput.parentElement.parentElement.appendChild(distHint);
 
   addBtn.addEventListener('click', function() {
     var data = store.load();
@@ -1363,15 +1430,28 @@ function randomizeSeats(data) {
 
   var MAX_ATTEMPTS = 100;
 
+  // 1st pass: all constraints including history
   for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    var result = tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout);
+    var result = tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, data);
     if (result) return result;
+  }
+
+  // 2nd pass fallback: without history constraint
+  if (data.useHistoryExclusion !== false && (data.assignmentHistory || []).length > 0) {
+    var fallbackData = Object.assign({}, data, { useHistoryExclusion: false });
+    for (var attempt2 = 0; attempt2 < MAX_ATTEMPTS; attempt2++) {
+      var result2 = tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, fallbackData);
+      if (result2) {
+        result2._historyFallback = true;
+        return result2;
+      }
+    }
   }
 
   return null;
 }
 
-function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout) {
+function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, data) {
   var assignment = {};
   var assignedStudents = {};
   var usedSeats = {};
@@ -1401,11 +1481,11 @@ function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, sepa
 
   shuffle(freeSeats);
 
-  var success = backtrack(0, remaining, freeSeats, assignment, posMap, separationRules, layout);
+  var success = backtrack(0, remaining, freeSeats, assignment, posMap, separationRules, layout, data);
   return success ? assignment : null;
 }
 
-function backtrack(studentIdx, students, freeSeats, assignment, posMap, rules, layout) {
+function backtrack(studentIdx, students, freeSeats, assignment, posMap, rules, layout, data) {
   if (studentIdx >= students.length) return true;
 
   var student = students[studentIdx];
@@ -1417,10 +1497,12 @@ function backtrack(studentIdx, students, freeSeats, assignment, posMap, rules, l
     if (assignment[seatIdx] !== undefined) continue;
 
     if (!checkConstraints(student, seatIdx, assignment, posMap, rules, layout)) continue;
+    if (!checkGenderConstraint(student, seatIdx, assignment, posMap, layout, data)) continue;
+    if (!checkHistoryConstraint(student, seatIdx, data)) continue;
 
     assignment[seatIdx] = student;
 
-    if (backtrack(studentIdx + 1, students, freeSeats, assignment, posMap, rules, layout)) {
+    if (backtrack(studentIdx + 1, students, freeSeats, assignment, posMap, rules, layout, data)) {
       return true;
     }
 
@@ -1452,6 +1534,70 @@ function checkConstraints(student, seatIdx, assignment, posMap, rules, layout) {
         }
       }
     }
+  }
+
+  return true;
+}
+
+function checkGenderConstraint(student, seatIdx, assignment, posMap, layout, data) {
+  var genderRule = data.genderRule || 'none';
+  if (genderRule === 'none') return true;
+
+  var genders = data.studentGenders || {};
+  var myGender = genders[student];
+  if (!myGender) return true;
+
+  var pos = posMap[seatIdx];
+  if (!pos) return true;
+
+  var adjacentSeats = [];
+  var assignedKeys = Object.keys(assignment);
+
+  if (data.layoutType === 'pair') {
+    var partnerCol = pos.col % 2 === 0 ? pos.col + 1 : pos.col - 1;
+    for (var ki = 0; ki < assignedKeys.length; ki++) {
+      var otherPos = posMap[Number(assignedKeys[ki])];
+      if (otherPos && otherPos.row === pos.row && otherPos.col === partnerCol) {
+        adjacentSeats.push(assignment[assignedKeys[ki]]);
+      }
+    }
+  } else {
+    for (var ki2 = 0; ki2 < assignedKeys.length; ki2++) {
+      var otherPos2 = posMap[Number(assignedKeys[ki2])];
+      if (otherPos2) {
+        var dist = Math.abs(pos.row - otherPos2.row) + Math.abs(pos.col - otherPos2.col);
+        if (dist === 1) adjacentSeats.push(assignment[assignedKeys[ki2]]);
+      }
+    }
+  }
+
+  for (var ai = 0; ai < adjacentSeats.length; ai++) {
+    var neighborGender = genders[adjacentSeats[ai]];
+    if (!neighborGender) continue;
+    if (genderRule === 'same' && myGender !== neighborGender) return false;
+    if (genderRule === 'mixed' && myGender === neighborGender) return false;
+  }
+
+  return true;
+}
+
+function checkHistoryConstraint(student, seatIdx, data) {
+  if (data.useHistoryExclusion === false) return true;
+
+  var history = data.assignmentHistory || [];
+  var excludeCount = data.historyExcludeCount || 1;
+
+  var recordsToCheck = [];
+  if (data.lastAssignment && data.lastAssignment.mapping) {
+    recordsToCheck.push(data.lastAssignment.mapping);
+  }
+  var recentHistory = history.slice(-excludeCount);
+  for (var hi = 0; hi < recentHistory.length; hi++) {
+    if (recentHistory[hi].mapping) recordsToCheck.push(recentHistory[hi].mapping);
+  }
+
+  for (var ri = 0; ri < recordsToCheck.length; ri++) {
+    if (recordsToCheck[ri][seatIdx] === student) return false;
   }
 
   return true;
@@ -1764,6 +1910,44 @@ function initTeacherScreen() {
     e.target.value = '';
   });
 
+  // Gender rule init
+  var genderRuleRadios = document.querySelectorAll('input[name="gender-rule"]');
+  var savedGenderRule = data.genderRule || 'none';
+  genderRuleRadios.forEach(function(radio) {
+    if (radio.value === savedGenderRule) radio.checked = true;
+    radio.addEventListener('change', function() {
+      store.update({ genderRule: radio.value });
+    });
+  });
+
+  // History settings init
+  var historyCheckbox = document.getElementById('use-history-exclusion');
+  var historyCountSelect = document.getElementById('history-exclude-count');
+  var historyInfo = document.getElementById('history-info');
+  var clearHistoryBtn = document.getElementById('btn-clear-history');
+
+  historyCheckbox.checked = data.useHistoryExclusion !== false;
+  historyCountSelect.value = data.historyExcludeCount || 1;
+
+  function updateHistoryInfo() {
+    var d = store.load();
+    var count = (d.assignmentHistory || []).length;
+    historyInfo.textContent = '\uC800\uC7A5\uB41C \uAE30\uB85D: ' + count + '\uAC74';
+  }
+  updateHistoryInfo();
+
+  historyCheckbox.addEventListener('change', function() {
+    store.update({ useHistoryExclusion: historyCheckbox.checked });
+  });
+  historyCountSelect.addEventListener('change', function() {
+    store.update({ historyExcludeCount: parseInt(historyCountSelect.value) });
+  });
+  clearHistoryBtn.addEventListener('click', function() {
+    store.update({ assignmentHistory: [] });
+    updateHistoryInfo();
+    showToast('\uAE30\uB85D\uC774 \uCD08\uAE30\uD654\uB418\uC5C8\uC2B5\uB2C8\uB2E4.', 'info');
+  });
+
   window.addEventListener('roster-updated', function() {
     refreshPreview();
     updateCustomStatus();
@@ -1869,7 +2053,24 @@ function initStudentScreen() {
         return;
       }
 
-      store.update({ lastAssignment: { mapping: result, timestamp: Date.now() } });
+      // Save history
+      var prevAssignment = current.lastAssignment;
+      var historyUpdate = {};
+      if (prevAssignment && prevAssignment.mapping) {
+        var history = (current.assignmentHistory || []).slice();
+        history.push({
+          mapping: prevAssignment.mapping,
+          timestamp: prevAssignment.timestamp,
+          date: new Date(prevAssignment.timestamp).toISOString().slice(0, 10)
+        });
+        while (history.length > 5) history.shift();
+        historyUpdate.assignmentHistory = history;
+      }
+
+      var historyFallback = result._historyFallback;
+      if (historyFallback) delete result._historyFallback;
+
+      store.update(Object.assign({ lastAssignment: { mapping: result, timestamp: Date.now() } }, historyUpdate));
 
       renderSeatGrid(container, current, result, { animate: true });
 
@@ -1883,6 +2084,8 @@ function initStudentScreen() {
       var violations = verifyAssignment(result, current);
       if (violations.length > 0) {
         showToast('\uADDC\uCE59 \uC704\uBC18 ' + violations.length + '\uAC74 \uBC1C\uACAC', 'error', 4000);
+      } else if (historyFallback) {
+        showToast('\uC774\uC804 \uC790\uB9AC\uB97C \uC644\uC804\uD788 \uD53C\uD560 \uC218 \uC5C6\uC5B4 \uC77C\uBD80 \uC911\uBCF5\uC774 \uC788\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.', 'warning', 4000);
       } else {
         showToast('\uC790\uB9AC \uBC30\uCE58 \uC644\uB8CC!', 'success');
       }

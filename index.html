@@ -56,6 +56,7 @@
           <h2><span class="step-badge">1</span> 학생 명단 <span id="student-count" class="count-badge">0명</span></h2>
           <textarea id="roster-input" placeholder="한 줄에 한 명씩 입력&#10;예:&#10;김민수&#10;이지은&#10;박서준" rows="10"></textarea>
           <button id="btn-save-roster" class="btn btn-primary">명단 저장</button>
+          <div id="gender-list" class="gender-list"></div>
         </section>
 
         <!-- Step 2: 배치 유형 -->
@@ -167,6 +168,30 @@
             </div>
           </div>
           <ul id="sep-rule-list" class="rule-list"></ul>
+        </section>
+
+        <!-- Step 5: 성별 규칙 -->
+        <section class="card" id="gender-rule-section">
+          <h2><span class="step-badge">5</span> 성별 규칙</h2>
+          <div class="gender-rule-options">
+            <label><input type="radio" name="gender-rule" value="none" checked> 제한 없음</label>
+            <label><input type="radio" name="gender-rule" value="same"> 동성끼리 앉기</label>
+            <label><input type="radio" name="gender-rule" value="mixed"> 이성끼리 앉기</label>
+          </div>
+          <p class="hint">짝대형: 짝꿍끼리 적용 / 기타: 가로·세로 인접 자리에 적용</p>
+        </section>
+
+        <!-- Step 6: 이전 자리 방지 -->
+        <section class="card" id="history-section">
+          <h2><span class="step-badge">6</span> 이전 자리 방지</h2>
+          <label class="history-toggle"><input type="checkbox" id="use-history-exclusion" checked> 이전 자리 재배치 방지</label>
+          <label class="history-count-label">최근 <select id="history-exclude-count">
+            <option value="1">1회</option>
+            <option value="2">2회</option>
+            <option value="3">3회</option>
+          </select> 배치 기록 확인</label>
+          <p id="history-info" class="hint">저장된 기록: 0건</p>
+          <button id="btn-clear-history" class="btn btn-sm btn-outline">기록 초기화</button>
         </section>
       </aside>
 

@@ -38,6 +38,13 @@ export function initConstraintEditor() {
     populateMultiSelect(bDropdown, bToggle, data.students, selectA.value);
   });
 
+  // 거리 도움말 추가
+  const distHint = document.createElement('p');
+  distHint.className = 'hint';
+  distHint.style.margin = '0';
+  distHint.textContent = '(가로·세로 칸 수 합, 대각선=2칸)';
+  distInput.parentElement.parentElement.appendChild(distHint);
+
   addBtn.addEventListener('click', () => {
     const data = store.load();
     const studentA = selectA.value;

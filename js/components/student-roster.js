@@ -21,6 +21,45 @@ export function initRoster() {
     countEl.textContent = `${names.length}명`;
   });
 
+  // 성별 리스트 렌더링
+  const genderListEl = document.getElementById('gender-list');
+
+  function renderGenderList() {
+    if (!genderListEl) return;
+    const data = store.load();
+    if (data.students.length === 0) {
+      genderListEl.innerHTML = '';
+      return;
+    }
+    const genders = data.studentGenders || {};
+    let html = '<h3 class="gender-list-title">성별 지정</h3>';
+    data.students.forEach(name => {
+      const g = genders[name] || '';
+      html += `<div class="gender-row" data-student="${name}">
+        <span class="gender-student-name">${name}</span>
+        <label class="gender-radio"><input type="radio" name="gender-${name}" value="M" ${g === 'M' ? 'checked' : ''}> 남</label>
+        <label class="gender-radio"><input type="radio" name="gender-${name}" value="F" ${g === 'F' ? 'checked' : ''}> 녀</label>
+        <label class="gender-radio"><input type="radio" name="gender-${name}" value="" ${g === '' ? 'checked' : ''}> 미지정</label>
+      </div>`;
+    });
+    genderListEl.innerHTML = html;
+
+    // 성별 변경 이벤트
+    genderListEl.querySelectorAll('input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        const d = store.load();
+        const studentGenders = { ...(d.studentGenders || {}) };
+        const studentName = radio.closest('.gender-row').dataset.student;
+        if (radio.value) {
+          studentGenders[studentName] = radio.value;
+        } else {
+          delete studentGenders[studentName];
+        }
+        store.update({ studentGenders });
+      });
+    });
+  }
+
   // 저장
   saveBtn.addEventListener('click', () => {
     const names = validateStudents(textarea.value.split('\n'));
@@ -38,16 +77,29 @@ export function initRoster() {
 
     const uniqueNames = [...new Set(names)];
 
+    // 삭제된 학생의 성별 정보 정리
+    const currentGenders = store.load().studentGenders || {};
+    const cleanedGenders = {};
+    uniqueNames.forEach(name => {
+      if (currentGenders[name]) cleanedGenders[name] = currentGenders[name];
+    });
+
     store.update({
       students: uniqueNames,
       classSize: uniqueNames.length,
       fixedSeats: store.load().fixedSeats.filter(f => uniqueNames.includes(f.studentName)),
       separationRules: store.load().separationRules.filter(
         r => uniqueNames.includes(r.studentA) && uniqueNames.includes(r.studentB)
-      )
+      ),
+      studentGenders: cleanedGenders
     });
     countEl.textContent = `${uniqueNames.length}명`;
     window.dispatchEvent(new CustomEvent('roster-updated'));
+    renderGenderList();
     showToast(`${uniqueNames.length}명의 학생 명단이 저장되었습니다.`, 'success');
   });
+
+  // 초기 성별 리스트 렌더링
+  renderGenderList();
+  window.addEventListener('roster-updated', renderGenderList);
 }

@@ -134,7 +134,26 @@ export function initStudentScreen() {
       return;
     }
 
-    store.update({ lastAssignment: { mapping: result, timestamp: Date.now() } });
+    // 기록 저장: 현재 lastAssignment를 history에 push
+    const prevAssignment = current.lastAssignment;
+    const historyUpdate = {};
+    if (prevAssignment && prevAssignment.mapping) {
+      const history = [...(current.assignmentHistory || [])];
+      history.push({
+        mapping: prevAssignment.mapping,
+        timestamp: prevAssignment.timestamp,
+        date: new Date(prevAssignment.timestamp).toISOString().slice(0, 10)
+      });
+      // 최대 5개 유지
+      while (history.length > 5) history.shift();
+      historyUpdate.assignmentHistory = history;
+    }
+
+    // history fallback 확인
+    const historyFallback = result._historyFallback;
+    if (historyFallback) delete result._historyFallback;
+
+    store.update({ lastAssignment: { mapping: result, timestamp: Date.now() }, ...historyUpdate });
 
     // 결과 애니메이션
     renderSeatGrid(container, current, result, { animate: true });
@@ -150,6 +169,8 @@ export function initStudentScreen() {
     const violations = verifyAssignment(result, current);
     if (violations.length > 0) {
       showToast(`규칙 위반 ${violations.length}건 발견`, 'error', 4000);
+    } else if (historyFallback) {
+      showToast('이전 자리를 완전히 피할 수 없어 일부 중복이 있을 수 있습니다.', 'warning', 4000);
     } else {
       showToast('자리 배치 완료!', 'success');
     }

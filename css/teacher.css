@@ -405,6 +405,99 @@
 }
 
 /* =========================================
+   Gender List
+   ========================================= */
+.gender-list {
+  margin-top: 0.75rem;
+}
+.gender-list-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+.gender-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.82rem;
+  border-bottom: 1px solid var(--border);
+}
+.gender-row:last-child {
+  border-bottom: none;
+}
+.gender-student-name {
+  flex: 1;
+  min-width: 60px;
+  font-weight: 500;
+}
+.gender-radio {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gender-radio input[type="radio"] {
+  accent-color: var(--primary);
+  margin: 0;
+}
+
+/* =========================================
+   Gender Rule Section
+   ========================================= */
+.gender-rule-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.gender-rule-options label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.gender-rule-options input[type="radio"] {
+  accent-color: var(--primary);
+}
+
+/* =========================================
+   History Section
+   ========================================= */
+.history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}
+.history-toggle input[type="checkbox"] {
+  accent-color: var(--primary);
+}
+.history-count-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+.history-count-label select {
+  padding: 0.25rem 0.4rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  background: var(--surface);
+}
+#btn-clear-history {
+  margin-top: 0.5rem;
+}
+
+/* =========================================
    Responsive
    ========================================= */
 @media (max-width: 900px) {

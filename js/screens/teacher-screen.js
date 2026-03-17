@@ -361,6 +361,44 @@ export function initTeacherScreen() {
     e.target.value = '';
   });
 
+  // === 성별 규칙 초기화 ===
+  const genderRuleRadios = document.querySelectorAll('input[name="gender-rule"]');
+  const savedGenderRule = data.genderRule || 'none';
+  genderRuleRadios.forEach(radio => {
+    if (radio.value === savedGenderRule) radio.checked = true;
+    radio.addEventListener('change', () => {
+      store.update({ genderRule: radio.value });
+    });
+  });
+
+  // === 이전 자리 방지 초기화 ===
+  const historyCheckbox = document.getElementById('use-history-exclusion');
+  const historyCountSelect = document.getElementById('history-exclude-count');
+  const historyInfo = document.getElementById('history-info');
+  const clearHistoryBtn = document.getElementById('btn-clear-history');
+
+  historyCheckbox.checked = data.useHistoryExclusion !== false;
+  historyCountSelect.value = data.historyExcludeCount || 1;
+
+  function updateHistoryInfo() {
+    const d = store.load();
+    const count = (d.assignmentHistory || []).length;
+    historyInfo.textContent = `저장된 기록: ${count}건`;
+  }
+  updateHistoryInfo();
+
+  historyCheckbox.addEventListener('change', () => {
+    store.update({ useHistoryExclusion: historyCheckbox.checked });
+  });
+  historyCountSelect.addEventListener('change', () => {
+    store.update({ historyExcludeCount: parseInt(historyCountSelect.value) });
+  });
+  clearHistoryBtn.addEventListener('click', () => {
+    store.update({ assignmentHistory: [] });
+    updateHistoryInfo();
+    showToast('기록이 초기화되었습니다.', 'info');
+  });
+
   window.addEventListener('roster-updated', () => {
     refreshPreview();
     updateCustomStatus();

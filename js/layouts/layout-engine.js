@@ -9,11 +9,11 @@
  */
 
 /**
- * Chebyshev distance (책상 칸 수)
- * 가로, 세로, 대각선 모두 1칸으로 계산
+ * Manhattan distance (가로·세로 칸 수 합)
+ * 대각선은 2칸으로 계산
  */
 export function manhattanDistance(pos1, pos2) {
-  return Math.max(Math.abs(pos1.row - pos2.row), Math.abs(pos1.col - pos2.col));
+  return Math.abs(pos1.row - pos2.row) + Math.abs(pos1.col - pos2.col);
 }
 
 export function escapeHTML(str) {

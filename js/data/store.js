@@ -49,7 +49,12 @@ export const store = {
         layoutSettings: { ...defaults.layoutSettings, ...(parsed.layoutSettings || {}) },
         fixedSeats: Array.isArray(parsed.fixedSeats) ? parsed.fixedSeats : [],
         separationRules: Array.isArray(parsed.separationRules) ? parsed.separationRules : [],
-        lastAssignment: null
+        lastAssignment: null,
+        studentGenders: (typeof parsed.studentGenders === 'object' && parsed.studentGenders) ? parsed.studentGenders : {},
+        genderRule: ['none','same','mixed'].includes(parsed.genderRule) ? parsed.genderRule : 'none',
+        assignmentHistory: Array.isArray(parsed.assignmentHistory) ? parsed.assignmentHistory : [],
+        historyExcludeCount: [1,2,3].includes(parsed.historyExcludeCount) ? parsed.historyExcludeCount : 1,
+        useHistoryExclusion: parsed.useHistoryExclusion !== false
       };
       data.classSize = data.students.length;
       this.save(data);

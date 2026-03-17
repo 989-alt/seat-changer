@@ -12,7 +12,12 @@ export function createDefaultData() {
     },
     fixedSeats: [],
     separationRules: [],
-    lastAssignment: null
+    lastAssignment: null,
+    studentGenders: {},
+    genderRule: 'none',
+    assignmentHistory: [],
+    historyExcludeCount: 1,
+    useHistoryExclusion: true
   };
 }
 
