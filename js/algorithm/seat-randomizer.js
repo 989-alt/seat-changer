@@ -214,6 +214,10 @@ function checkGenderConstraint(student, seatIdx, assignment, posMap, layout, dat
 function checkHistoryConstraint(student, seatIdx, data) {
   if (data.useHistoryExclusion === false) return true;
 
+  // 고정 자리 학생은 history 체크 건너뜀
+  const fixedSeats = data.fixedSeats || [];
+  if (fixedSeats.some(fs => fs.studentName === student && fs.seatIndex === seatIdx)) return true;
+
   const history = data.assignmentHistory || [];
   const excludeCount = data.historyExcludeCount || 1;
 
