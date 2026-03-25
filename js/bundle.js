@@ -2107,17 +2107,25 @@ function initStudentScreen() {
     renderSeatGrid(container, data, assignment, { animate: !!animate, teacherView: isTeacherView });
   }
 
-  var data = store.load();
-  updateEmptyState(data);
+  // 학생 화면 진입 시 최신 데이터로 갱신 (화면 전환 시마다 호출)
+  function refreshStudentScreen() {
+    var data = store.load();
+    currentAssignment = null;
+    updateEmptyState(data);
 
-  if (data.students.length > 0) {
-    store.update({ lastAssignment: null });
-    var rosterOrder = createRosterOrder(data);
-    renderSeatGrid(container, data, rosterOrder, { teacherView: isTeacherView });
-    drawBtn.style.display = 'inline-flex';
-    redrawBtn.style.display = 'none';
-    showResultToolbar(false);
+    if (data.students.length > 0) {
+      store.update({ lastAssignment: null });
+      var rosterOrder = createRosterOrder(data);
+      renderSeatGrid(container, data, rosterOrder, { teacherView: isTeacherView });
+      drawBtn.style.display = 'inline-flex';
+      redrawBtn.style.display = 'none';
+      showResultToolbar(false);
+    }
   }
+  // 외부에서 접근 가능하도록 전역 등록
+  window._refreshStudentScreen = refreshStudentScreen;
+
+  refreshStudentScreen();
 
   // Draw seats
   function doDraw(isRedraw) {
@@ -2537,6 +2545,9 @@ function route() {
     if (!_studentInited) {
       initStudentScreen();
       _studentInited = true;
+    } else {
+      // 이미 초기화된 경우: 최신 데이터로 화면 갱신
+      if (window._refreshStudentScreen) window._refreshStudentScreen();
     }
   }
 }
