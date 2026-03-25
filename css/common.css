@@ -375,6 +375,34 @@ textarea {
   position: relative;
 }
 
+/* === Teacher Perspective === */
+.blackboard.podium {
+  background: #4A3728;
+}
+
+/* View Toggle Button */
+.view-toggle-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.view-toggle-btn {
+  gap: 6px;
+  font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+}
+.view-toggle-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* Print: dual view (hidden on screen, shown in print) */
+.print-dual-wrapper {
+  display: none;
+}
+
 /* === Screen === */
 .screen {
   min-height: 100vh;
@@ -594,8 +622,32 @@ textarea {
   .teacher-link-btn,
   .teacher-header,
   .settings-panel,
-  .preview-actions {
+  .preview-actions,
+  .view-toggle-wrap {
     display: none !important;
+  }
+  .print-dual-wrapper {
+    display: block !important;
+  }
+  /* 인쇄 시 원본 배치도는 JS에서 print-hidden 클래스로 숨김 */
+  .print-hidden {
+    display: none !important;
+  }
+  .print-dual-wrapper .print-view-label {
+    font-size: 14pt;
+    font-weight: 700;
+    margin: 20px 0 8px;
+    text-align: center;
+    page-break-after: avoid;
+  }
+  .print-dual-wrapper .seat-grid-container {
+    margin-bottom: 24px;
+    transition: none !important;
+  }
+  .print-dual-wrapper .blackboard.podium {
+    background: #4A3728 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
   body {
     background: white;
@@ -606,6 +658,10 @@ textarea {
   }
   .seat {
     border: 1px solid #333 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .blackboard {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }

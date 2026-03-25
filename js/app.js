@@ -2,6 +2,9 @@
 import { initTeacherScreen } from './screens/teacher-screen.js';
 import { initStudentScreen } from './screens/student-screen.js';
 
+let _teacherInited = false;
+let _studentInited = false;
+
 function route() {
   const hash = location.hash.replace('#', '') || 'teacher';
   const teacherEl = document.getElementById('teacher-screen');
@@ -12,17 +15,20 @@ function route() {
 
   if (hash === 'teacher') {
     teacherEl.style.display = 'block';
-    initTeacherScreen();
+    if (!_teacherInited) {
+      initTeacherScreen();
+      _teacherInited = true;
+    }
   } else {
     studentEl.style.display = 'block';
-    initStudentScreen();
+    if (!_studentInited) {
+      initStudentScreen();
+      _studentInited = true;
+    }
   }
 }
 
-window.addEventListener('hashchange', () => {
-  // 화면 전환 시 전체 재초기화
-  route();
-});
+window.addEventListener('hashchange', () => route());
 
 // 초기 로딩
 route();

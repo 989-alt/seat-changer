@@ -24,16 +24,27 @@ export const examLayout = {
   render(container, settings, assignment, options = {}) {
     const { columns, rows } = settings;
     const positions = this.getSeatPositions(settings);
+    const tv = options.teacherView;
 
-    let html = '<div class="blackboard">칠 판</div>';
+    // teacherView: 행 역순, 열 역순 → 교탁에서 바라보는 배치
+    const ordered = tv ? [...positions].sort((a, b) => {
+      if (a.row !== b.row) return b.row - a.row;
+      return b.col - a.col;
+    }) : positions;
+
+    let html = tv
+      ? ''
+      : '<div class="blackboard">칠  판</div>';
+
     html += `<div class="seat-grid" style="grid-template-columns: repeat(${columns}, 1fr);">`;
 
-    for (const pos of positions) {
+    let animIdx = 0;
+    for (const pos of ordered) {
       const name = assignment ? assignment[pos.index] : null;
       const cls = name ? 'seat assigned' : 'seat empty';
       const extraCls = options.highlightSeat === pos.index ? ' highlight' : '';
       const revealCls = options.animate ? ' reveal' : '';
-      const delay = options.animate ? `animation-delay: ${pos.index * 60}ms` : '';
+      const delay = options.animate ? `animation-delay: ${animIdx * 60}ms` : '';
       const safeName = escapeHTML(name);
       const label = name ? `${pos.index + 1}번 자리: ${safeName}` : `${pos.index + 1}번 자리 (비어있음)`;
 
@@ -42,9 +53,11 @@ export const examLayout = {
         <span class="seat-number">${pos.index + 1}</span>
         <span class="seat-name">${safeName}</span>
       </div>`;
+      animIdx++;
     }
 
     html += '</div>';
+    if (tv) html += '<div class="blackboard podium">교  탁</div>';
     container.innerHTML = html;
   }
 };

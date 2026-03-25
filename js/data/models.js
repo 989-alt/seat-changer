@@ -17,7 +17,8 @@ export function createDefaultData() {
     genderRule: 'none',
     assignmentHistory: [],
     historyExcludeCount: 1,
-    useHistoryExclusion: true
+    useHistoryExclusion: true,
+    viewPerspective: 'student'
   };
 }
 

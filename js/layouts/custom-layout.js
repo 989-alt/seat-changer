@@ -227,7 +227,9 @@ export const customLayout = {
     const scaledW = srcW * scale + 40;
     const scaledH = srcH * scale + 40;
 
-    let html = '<div class="blackboard">칠 판</div>';
+    const tv = options.teacherView;
+
+    let html = tv ? '' : '<div class="blackboard">칠  판</div>';
     html += `<div class="custom-preview" style="position:relative;width:${scaledW}px;height:${scaledH}px;margin:0 auto;">`;
 
     desks.forEach((d, i) => {
@@ -239,10 +241,16 @@ export const customLayout = {
       const safeName = escapeHTML(name);
       const label = name ? `${i + 1}번 자리: ${safeName}` : `${i + 1}번 자리 (비어있음)`;
 
-      const sx = (d.x - minX) * scale + 20;
-      const sy = (d.y - minY) * scale + 20;
+      let sx = (d.x - minX) * scale + 20;
+      let sy = (d.y - minY) * scale + 20;
       const sw = DESK_W * scale;
       const sh = DESK_H * scale;
+
+      // teacherView: 좌표 180도 반전
+      if (tv) {
+        sx = scaledW - sx - sw;
+        sy = scaledH - sy - sh;
+      }
 
       html += `<div class="${cls}${extraCls}${revealCls}" data-seat="${i}"
         style="position:absolute;left:${sx}px;top:${sy}px;width:${sw}px;height:${sh}px;${delay}"
@@ -253,6 +261,7 @@ export const customLayout = {
     });
 
     html += '</div>';
+    if (tv) html += '<div class="blackboard podium">교  탁</div>';
     container.innerHTML = html;
   },
 

@@ -22,7 +22,8 @@ function createDefaultData() {
     genderRule: 'none',
     assignmentHistory: [],
     historyExcludeCount: 1,
-    useHistoryExclusion: true
+    useHistoryExclusion: true,
+    viewPerspective: 'student'
   };
 }
 
@@ -110,7 +111,8 @@ var store = {
         genderRule: ['none','same','mixed'].indexOf(parsed.genderRule) !== -1 ? parsed.genderRule : 'none',
         assignmentHistory: Array.isArray(parsed.assignmentHistory) ? parsed.assignmentHistory : [],
         historyExcludeCount: [1,2,3].indexOf(parsed.historyExcludeCount) !== -1 ? parsed.historyExcludeCount : 1,
-        useHistoryExclusion: parsed.useHistoryExclusion !== false
+        useHistoryExclusion: parsed.useHistoryExclusion !== false,
+        viewPerspective: ['student','teacher'].indexOf(parsed.viewPerspective) >= 0 ? parsed.viewPerspective : 'student'
       };
       data.classSize = data.students.length;
       this.save(data);
@@ -229,18 +231,25 @@ var examLayout = {
     var columns = settings.columns;
     var rows = settings.rows;
     var positions = this.getSeatPositions(settings);
+    var tv = options.teacherView;
 
-    var html = '<div class="blackboard">\uCE60 \uD310</div>';
+    var ordered = tv ? positions.slice().sort(function(a, b) {
+      if (a.row !== b.row) return b.row - a.row;
+      return b.col - a.col;
+    }) : positions;
+
+    var html = tv ? '' : '<div class="blackboard">\uCE60  \uD310</div>';
     html += '<div class="seat-grid" style="grid-template-columns: repeat(' + columns + ', 1fr);">';
 
-    for (var p = 0; p < positions.length; p++) {
-      var pos = positions[p];
+    var animIdx = 0;
+    for (var p = 0; p < ordered.length; p++) {
+      var pos = ordered[p];
       var name = assignment ? assignment[pos.index] : null;
       var safeName = escapeHTML(name);
       var cls = name ? 'seat assigned' : 'seat empty';
       var extraCls = options.highlightSeat === pos.index ? ' highlight' : '';
       var revealCls = options.animate ? ' reveal' : '';
-      var delay = options.animate ? 'animation-delay: ' + (pos.index * 60) + 'ms' : '';
+      var delay = options.animate ? 'animation-delay: ' + (animIdx * 60) + 'ms' : '';
       var label = name ? (pos.index + 1) + '\uBC88 \uC790\uB9AC: ' + safeName : (pos.index + 1) + '\uBC88 \uC790\uB9AC (\uBE44\uC5B4\uC788\uC74C)';
 
       html += '<div class="' + cls + extraCls + revealCls + '" data-seat="' + pos.index + '" style="' + delay + '"'
@@ -248,9 +257,11 @@ var examLayout = {
         + '<span class="seat-number">' + (pos.index + 1) + '</span>'
         + '<span class="seat-name">' + safeName + '</span>'
         + '</div>';
+      animIdx++;
     }
 
     html += '</div>';
+    if (tv) html += '<div class="blackboard podium">\uAD50  \uD0C1</div>';
     container.innerHTML = html;
   }
 };
@@ -282,23 +293,33 @@ var pairLayout = {
     var columns = settings.columns;
     var rows = settings.rows;
     var pairCols = Math.ceil(columns / 2);
+    var tv = options.teacherView;
 
-    var html = '<div class="blackboard">\uCE60 \uD310</div>';
+    var html = tv ? '' : '<div class="blackboard">\uCE60  \uD310</div>';
     html += '<div class="pair-grid" style="grid-template-columns: repeat(' + pairCols + ', auto);">';
 
-    for (var r = 0; r < rows; r++) {
-      for (var pc = 0; pc < pairCols; pc++) {
+    var rowArr = [], pcArr = [];
+    for (var ri = 0; ri < rows; ri++) rowArr.push(tv ? (rows - 1 - ri) : ri);
+    for (var pi = 0; pi < pairCols; pi++) pcArr.push(tv ? (pairCols - 1 - pi) : pi);
+
+    var animIdx = 0;
+    for (var rr = 0; rr < rowArr.length; rr++) {
+      var r = rowArr[rr];
+      for (var pp = 0; pp < pcArr.length; pp++) {
+        var pc = pcArr[pp];
         html += '<div class="seat-pair-group">';
-        for (var i = 0; i < 2; i++) {
+        var innerOrder = tv ? [1, 0] : [0, 1];
+        for (var ii = 0; ii < innerOrder.length; ii++) {
+          var i = innerOrder[ii];
           var c = pc * 2 + i;
-          if (c >= columns) break;
+          if (c >= columns) continue;
           var idx = r * columns + c;
           var name = assignment ? assignment[idx] : null;
           var safeName = escapeHTML(name);
           var cls = name ? 'seat assigned' : 'seat empty';
           var extraCls = options.highlightSeat === idx ? ' highlight' : '';
           var revealCls = options.animate ? ' reveal' : '';
-          var delay = options.animate ? 'animation-delay: ' + (idx * 60) + 'ms' : '';
+          var delay = options.animate ? 'animation-delay: ' + (animIdx * 60) + 'ms' : '';
           var label = name ? (idx + 1) + '\uBC88 \uC790\uB9AC: ' + safeName : (idx + 1) + '\uBC88 \uC790\uB9AC (\uBE44\uC5B4\uC788\uC74C)';
 
           html += '<div class="' + cls + extraCls + revealCls + '" data-seat="' + idx + '" style="' + delay + '"'
@@ -306,12 +327,14 @@ var pairLayout = {
             + '<span class="seat-number">' + (idx + 1) + '</span>'
             + '<span class="seat-name">' + safeName + '</span>'
             + '</div>';
+          animIdx++;
         }
         html += '</div>';
       }
     }
 
     html += '</div>';
+    if (tv) html += '<div class="blackboard podium">\uAD50  \uD0C1</div>';
     container.innerHTML = html;
   }
 };
@@ -354,19 +377,22 @@ var ushapeLayout = {
     var columns = settings.columns;
     var rows = settings.rows;
     var positions = this.getSeatPositions(settings);
+    var tv = options.teacherView;
 
     var topSeats = positions.filter(function(p) { return p.row === 0; });
     var leftSeats = positions.filter(function(p) { return p.row > 0 && p.col === 0; });
     var rightSeats = positions.filter(function(p) { return p.row > 0 && p.col === columns - 1; });
 
+    var animIdx = 0;
     function renderSeat(pos) {
       var name = assignment ? assignment[pos.index] : null;
       var safeName = escapeHTML(name);
       var cls = name ? 'seat assigned' : 'seat empty';
       var extraCls = options.highlightSeat === pos.index ? ' highlight' : '';
       var revealCls = options.animate ? ' reveal' : '';
-      var delay = options.animate ? 'animation-delay: ' + (pos.index * 60) + 'ms' : '';
+      var delay = options.animate ? 'animation-delay: ' + (animIdx * 60) + 'ms' : '';
       var label = name ? (pos.index + 1) + '\uBC88 \uC790\uB9AC: ' + safeName : (pos.index + 1) + '\uBC88 \uC790\uB9AC (\uBE44\uC5B4\uC788\uC74C)';
+      animIdx++;
 
       return '<div class="' + cls + extraCls + revealCls + '" data-seat="' + pos.index + '" style="' + delay + '"'
         + ' tabindex="0" role="button" aria-label="' + label + '">'
@@ -375,23 +401,39 @@ var ushapeLayout = {
         + '</div>';
     }
 
-    var html = '<div class="blackboard">\uCE60 \uD310</div>';
+    var html = tv ? '' : '<div class="blackboard">\uCE60  \uD310</div>';
     html += '<div class="ushape-grid">';
 
-    html += '<div class="ushape-row">';
-    topSeats.forEach(function(p) { html += renderSeat(p); });
-    html += '</div>';
+    if (tv) {
+      html += '<div class="ushape-side-wrapper">';
+      html += '<div class="ushape-side">';
+      rightSeats.slice().reverse().forEach(function(p) { html += renderSeat(p); });
+      html += '</div>';
+      html += '<div class="ushape-side">';
+      leftSeats.slice().reverse().forEach(function(p) { html += renderSeat(p); });
+      html += '</div>';
+      html += '</div>';
 
-    html += '<div class="ushape-side-wrapper">';
-    html += '<div class="ushape-side">';
-    leftSeats.forEach(function(p) { html += renderSeat(p); });
-    html += '</div>';
-    html += '<div class="ushape-side">';
-    rightSeats.forEach(function(p) { html += renderSeat(p); });
-    html += '</div>';
-    html += '</div>';
+      html += '<div class="ushape-row">';
+      topSeats.slice().reverse().forEach(function(p) { html += renderSeat(p); });
+      html += '</div>';
+    } else {
+      html += '<div class="ushape-row">';
+      topSeats.forEach(function(p) { html += renderSeat(p); });
+      html += '</div>';
+
+      html += '<div class="ushape-side-wrapper">';
+      html += '<div class="ushape-side">';
+      leftSeats.forEach(function(p) { html += renderSeat(p); });
+      html += '</div>';
+      html += '<div class="ushape-side">';
+      rightSeats.forEach(function(p) { html += renderSeat(p); });
+      html += '</div>';
+      html += '</div>';
+    }
 
     html += '</div>';
+    if (tv) html += '<div class="blackboard podium">\uAD50  \uD0C1</div>';
     container.innerHTML = html;
   }
 };
@@ -616,7 +658,9 @@ var customLayout = {
     var scaledW = srcW * scale + 40;
     var scaledH = srcH * scale + 40;
 
-    var html = '<div class="blackboard">\uCE60 \uD310</div>';
+    var tv = options.teacherView;
+
+    var html = tv ? '' : '<div class="blackboard">\uCE60  \uD310</div>';
     html += '<div class="custom-preview" style="position:relative;width:' + scaledW + 'px;height:' + scaledH + 'px;margin:0 auto;">';
 
     desks.forEach(function(d, i) {
@@ -633,6 +677,11 @@ var customLayout = {
       var sw = DESK_W * scale;
       var sh = DESK_H * scale;
 
+      if (tv) {
+        sx = scaledW - sx - sw;
+        sy = scaledH - sy - sh;
+      }
+
       html += '<div class="' + cls + extraCls + revealCls + '" data-seat="' + i + '"'
         + ' style="position:absolute;left:' + sx + 'px;top:' + sy + 'px;width:' + sw + 'px;height:' + sh + 'px;' + delay + '"'
         + ' tabindex="0" role="button" aria-label="' + label + '">'
@@ -642,6 +691,7 @@ var customLayout = {
     });
 
     html += '</div>';
+    if (tv) html += '<div class="blackboard podium">\uAD50  \uD0C1</div>';
     container.innerHTML = html;
   },
 
@@ -951,7 +1001,8 @@ function renderSeatGrid(container, data, assignment, options) {
   layout.render(container, data.layoutSettings, assignment, {
     fixedSeats: data.fixedSeats,
     animate: options.animate,
-    highlightSeat: options.highlightSeat
+    highlightSeat: options.highlightSeat,
+    teacherView: options.teacherView
   });
 
   if (options.onSeatClick) {
@@ -1616,10 +1667,28 @@ function initTeacherScreen() {
   var previewTitle = document.getElementById('preview-title');
   var seatGrid = document.getElementById('teacher-seat-grid');
   var customEditor = document.getElementById('custom-editor');
+  var viewToggleBtnTeacher = document.getElementById('btn-toggle-view-teacher');
+
+  // 시선 전환 (교사 미리보기)
+  var isTeacherViewPreview = store.load().viewPerspective === 'teacher';
+  var currentPreviewAssignment = null;
+
+  function updateTeacherToggleBtn() {
+    viewToggleBtnTeacher.classList.toggle('active', isTeacherViewPreview);
+    viewToggleBtnTeacher.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> ' + (isTeacherViewPreview ? '\uC120\uC0DD\uB2D8 \uC2DC\uC120' : '\uD559\uC0DD \uC2DC\uC120');
+  }
+  updateTeacherToggleBtn();
+
+  viewToggleBtnTeacher.addEventListener('click', function() {
+    isTeacherViewPreview = !isTeacherViewPreview;
+    store.update({ viewPerspective: isTeacherViewPreview ? 'teacher' : 'student' });
+    updateTeacherToggleBtn();
+    refreshPreview();
+  });
 
   function refreshPreview() {
     var data = store.load();
-    var assignment = (data.lastAssignment && data.lastAssignment.mapping) ? data.lastAssignment.mapping : null;
+    var assignment = currentPreviewAssignment || ((data.lastAssignment && data.lastAssignment.mapping) ? data.lastAssignment.mapping : null);
 
     if (data.layoutType === 'custom') {
       seatGrid.style.display = 'none';
@@ -1630,7 +1699,8 @@ function initTeacherScreen() {
       customEditor.style.display = 'none';
       previewTitle.textContent = '\uBC30\uCE58\uB3C4 \uBBF8\uB9AC\uBCF4\uAE30';
       renderSeatGrid(seatGrid, data, assignment, {
-        fixedSeats: data.fixedSeats
+        fixedSeats: data.fixedSeats,
+        teacherView: isTeacherViewPreview
       });
     }
     checkSeatWarning();
@@ -1843,10 +1913,11 @@ function initTeacherScreen() {
 
     var result = randomizeSeats(current);
     if (result) {
+      currentPreviewAssignment = result;
       if (current.layoutType === 'custom') {
         seatGrid.style.display = 'block';
       }
-      renderSeatGrid(seatGrid, current, result, { fixedSeats: current.fixedSeats, animate: true });
+      renderSeatGrid(seatGrid, current, result, { fixedSeats: current.fixedSeats, animate: true, teacherView: isTeacherViewPreview });
       var violations = verifyAssignment(result, current);
       if (violations.length > 0) {
         showToast('\uADDC\uCE59 \uC704\uBC18 ' + violations.length + '\uAC74: ' + violations.join(' / '), 'error', 5000);
@@ -1979,6 +2050,34 @@ function initStudentScreen() {
   var saveImageBtn = document.getElementById('btn-save-image');
   var loadResultBtn = document.getElementById('btn-load-result');
   var resultImportFile = document.getElementById('result-import-file');
+  var viewToggleBtn = document.getElementById('btn-toggle-view-student');
+
+  // 시선 전환
+  var isTeacherView = store.load().viewPerspective === 'teacher';
+  var currentAssignment = null;
+
+  function updateToggleBtn() {
+    viewToggleBtn.classList.toggle('active', isTeacherView);
+    viewToggleBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> ' + (isTeacherView ? '\uC120\uC0DD\uB2D8 \uC2DC\uC120' : '\uD559\uC0DD \uC2DC\uC120');
+  }
+  updateToggleBtn();
+
+  viewToggleBtn.addEventListener('click', function() {
+    isTeacherView = !isTeacherView;
+    store.update({ viewPerspective: isTeacherView ? 'teacher' : 'student' });
+    updateToggleBtn();
+    reRenderCurrentView();
+  });
+
+  function reRenderCurrentView() {
+    var d = store.load();
+    var assignment = currentAssignment || ((d.lastAssignment && d.lastAssignment.mapping) ? d.lastAssignment.mapping : null);
+    if (assignment) {
+      renderSeatGrid(container, d, assignment, { teacherView: isTeacherView });
+    } else if (d.students.length > 0) {
+      renderSeatGrid(container, d, createRosterOrder(d), { teacherView: isTeacherView });
+    }
+  }
 
   function updateEmptyState(data) {
     if (data.students.length === 0) {
@@ -2004,8 +2103,8 @@ function initStudentScreen() {
 
   function renderCurrent(animate) {
     var data = store.load();
-    var assignment = (data.lastAssignment && data.lastAssignment.mapping) ? data.lastAssignment.mapping : null;
-    renderSeatGrid(container, data, assignment, { animate: !!animate });
+    var assignment = currentAssignment || ((data.lastAssignment && data.lastAssignment.mapping) ? data.lastAssignment.mapping : null);
+    renderSeatGrid(container, data, assignment, { animate: !!animate, teacherView: isTeacherView });
   }
 
   var data = store.load();
@@ -2014,7 +2113,7 @@ function initStudentScreen() {
   if (data.students.length > 0) {
     store.update({ lastAssignment: null });
     var rosterOrder = createRosterOrder(data);
-    renderSeatGrid(container, data, rosterOrder);
+    renderSeatGrid(container, data, rosterOrder, { teacherView: isTeacherView });
     drawBtn.style.display = 'inline-flex';
     redrawBtn.style.display = 'none';
     showResultToolbar(false);
@@ -2077,8 +2176,9 @@ function initStudentScreen() {
       if (historyFallback) delete result._historyFallback;
 
       store.update(Object.assign({ lastAssignment: { mapping: result, timestamp: Date.now() } }, historyUpdate));
+      currentAssignment = result;
 
-      renderSeatGrid(container, current, result, { animate: true });
+      renderSeatGrid(container, current, result, { animate: true, teacherView: isTeacherView });
 
       drawBtn.style.display = 'none';
       redrawBtn.style.display = 'inline-flex';
@@ -2142,13 +2242,14 @@ function initStudentScreen() {
     }
 
     try {
-      renderToCanvas(container, current).then(function(canvas) {
+      renderToCanvas(container, isTeacherView).then(function(canvas) {
         canvas.toBlob(function(blob) {
           var url = URL.createObjectURL(blob);
           var a = document.createElement('a');
           a.href = url;
           var dateStr = new Date().toISOString().slice(0, 10);
-          a.download = '\uC790\uB9AC\uBC30\uCE58_' + dateStr + '.png';
+          var viewSuffix = isTeacherView ? '_\uC120\uC0DD\uB2D8\uC2DC\uC120' : '';
+          a.download = '\uC790\uB9AC\uBC30\uCE58' + viewSuffix + '_' + dateStr + '.png';
           a.click();
           URL.revokeObjectURL(url);
           showToast('\uC774\uBBF8\uC9C0\uB85C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.', 'success');
@@ -2190,6 +2291,7 @@ function initStudentScreen() {
         var dateStr = imported.date || '(\uC54C \uC218 \uC5C6\uC74C)';
         showToast(dateStr + ' \uC790\uB9AC \uBC30\uCE58\uB97C \uBD88\uB7EC\uC654\uC2B5\uB2C8\uB2E4.', 'success');
 
+        currentAssignment = imported.assignment;
         renderCurrent(true);
         drawBtn.style.display = 'none';
         redrawBtn.style.display = 'inline-flex';
@@ -2203,9 +2305,45 @@ function initStudentScreen() {
     e.target.value = '';
   });
 
-  // Print
+  // Print (양면 보기: 학생 시선 + 선생님 시선)
   printBtn.addEventListener('click', function() {
+    var printDual = document.getElementById('print-dual');
+    var current = store.load();
+    if (!current.lastAssignment) {
+      window.print();
+      return;
+    }
+
+    printDual.innerHTML = '';
+
+    // 학생 시선
+    var studentLabel = document.createElement('div');
+    studentLabel.className = 'print-view-label';
+    studentLabel.textContent = '[ \uD559\uC0DD \uC2DC\uC120 ]';
+    printDual.appendChild(studentLabel);
+
+    var studentContainer = document.createElement('div');
+    studentContainer.className = 'seat-grid-container';
+    renderSeatGrid(studentContainer, current, current.lastAssignment.mapping, { teacherView: false });
+    printDual.appendChild(studentContainer);
+
+    // 선생님 시선
+    var teacherLabel = document.createElement('div');
+    teacherLabel.className = 'print-view-label';
+    teacherLabel.textContent = '[ \uC120\uC0DD\uB2D8 \uC2DC\uC120 ]';
+    printDual.appendChild(teacherLabel);
+
+    var teacherContainer = document.createElement('div');
+    teacherContainer.className = 'seat-grid-container';
+    renderSeatGrid(teacherContainer, current, current.lastAssignment.mapping, { teacherView: true });
+    printDual.appendChild(teacherContainer);
+
+    container.classList.add('print-hidden');
     window.print();
+    setTimeout(function() {
+      printDual.innerHTML = '';
+      container.classList.remove('print-hidden');
+    }, 1000);
   });
 
   // Fullscreen
@@ -2237,7 +2375,7 @@ function initStudentScreen() {
     if (d.students.length === 0) return;
 
     var rosterOrder = createRosterOrder(d);
-    renderSeatGrid(container, d, rosterOrder);
+    renderSeatGrid(container, d, rosterOrder, { teacherView: isTeacherView });
     drawBtn.style.display = 'inline-flex';
     redrawBtn.style.display = 'none';
     showResultToolbar(false);
@@ -2282,12 +2420,10 @@ function slotAnimation(container, data) {
   });
 }
 
-// Render to canvas for image export
-function renderToCanvas(container) {
+// Render to canvas for image export (container is already rendered in correct view)
+function renderToCanvas(container, teacherView) {
   return new Promise(function(resolve) {
-    var gridEl = container.querySelector('.seat-grid, .pair-grid, .ushape-grid, [style*="position:relative"]');
     var blackboardEl = container.querySelector('.blackboard');
-
     var seats = container.querySelectorAll('.seat');
     if (seats.length === 0) {
       throw new Error('No seats');
@@ -2312,19 +2448,21 @@ function renderToCanvas(container) {
     ctx.font = 'bold 20px "Noto Sans KR", sans-serif';
     ctx.textAlign = 'center';
     var dateStr = new Date().toLocaleDateString('ko-KR');
-    ctx.fillText('\uC790\uB9AC \uBC30\uCE58 - ' + dateStr, canvasWidth / 2, 30);
+    var viewLabel = teacherView ? ' (\uC120\uC0DD\uB2D8 \uC2DC\uC120)' : '';
+    ctx.fillText('\uC790\uB9AC \uBC30\uCE58' + viewLabel + ' - ' + dateStr, canvasWidth / 2, 30);
 
     if (blackboardEl) {
       var bbRect = blackboardEl.getBoundingClientRect();
       var bbX = bbRect.left - containerRect.left + padding;
-      var bbY = titleHeight;
-      ctx.fillStyle = '#2D5016';
+      var bbY = bbRect.top - containerRect.top + padding + titleHeight;
+      var isPodium = blackboardEl.classList.contains('podium');
+      ctx.fillStyle = isPodium ? '#4A3728' : '#2D5016';
       bundleRoundRect(ctx, bbX, bbY, bbRect.width, bbRect.height, 4);
       ctx.fill();
-      ctx.fillStyle = '#D1FAE5';
+      ctx.fillStyle = isPodium ? '#F5E6D3' : '#D1FAE5';
       ctx.font = '14px "Noto Sans KR", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('\uCE60 \uD310', bbX + bbRect.width / 2, bbY + bbRect.height / 2 + 5);
+      ctx.fillText(blackboardEl.textContent, bbX + bbRect.width / 2, bbY + bbRect.height / 2 + 5);
     }
 
     seats.forEach(function(seat) {
@@ -2377,6 +2515,9 @@ function bundleRoundRect(ctx, x, y, w, h, r) {
 }
 
 // === app.js ===
+var _teacherInited = false;
+var _studentInited = false;
+
 function route() {
   var hash = location.hash.replace('#', '') || 'teacher';
   var teacherEl = document.getElementById('teacher-screen');
@@ -2387,10 +2528,16 @@ function route() {
 
   if (hash === 'teacher') {
     teacherEl.style.display = 'block';
-    initTeacherScreen();
+    if (!_teacherInited) {
+      initTeacherScreen();
+      _teacherInited = true;
+    }
   } else {
     studentEl.style.display = 'block';
-    initStudentScreen();
+    if (!_studentInited) {
+      initStudentScreen();
+      _studentInited = true;
+    }
   }
 }
 

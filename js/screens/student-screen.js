@@ -52,6 +52,34 @@ export function initStudentScreen() {
   const saveImageBtn = document.getElementById('btn-save-image');
   const loadResultBtn = document.getElementById('btn-load-result');
   const resultImportFile = document.getElementById('result-import-file');
+  const viewToggleBtn = document.getElementById('btn-toggle-view-student');
+
+  // === 시선 전환 ===
+  let isTeacherView = store.load().viewPerspective === 'teacher';
+  let currentAssignment = null; // 현재 화면에 표시 중인 배치 결과
+
+  function updateToggleBtn() {
+    viewToggleBtn.classList.toggle('active', isTeacherView);
+    viewToggleBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> ${isTeacherView ? '선생님 시선' : '학생 시선'}`;
+  }
+  updateToggleBtn();
+
+  viewToggleBtn.addEventListener('click', () => {
+    isTeacherView = !isTeacherView;
+    store.update({ viewPerspective: isTeacherView ? 'teacher' : 'student' });
+    updateToggleBtn();
+    reRenderCurrentView();
+  });
+
+  function reRenderCurrentView() {
+    const d = store.load();
+    const assignment = currentAssignment || d.lastAssignment?.mapping || null;
+    if (assignment) {
+      renderSeatGrid(container, d, assignment, { teacherView: isTeacherView });
+    } else if (d.students.length > 0) {
+      renderSeatGrid(container, d, createRosterOrder(d), { teacherView: isTeacherView });
+    }
+  }
 
   function updateEmptyState(data) {
     if (data.students.length === 0) {
@@ -78,8 +106,8 @@ export function initStudentScreen() {
 
   function renderCurrent(animate = false) {
     const data = store.load();
-    const assignment = data.lastAssignment?.mapping || null;
-    renderSeatGrid(container, data, assignment, { animate });
+    const assignment = currentAssignment || data.lastAssignment?.mapping || null;
+    renderSeatGrid(container, data, assignment, { animate, teacherView: isTeacherView });
   }
 
   // 초기 표시: 항상 명단 순서로 배치 (교사 미리보기 결과 무시)
@@ -90,7 +118,7 @@ export function initStudentScreen() {
     // 학생 화면 진입 시 항상 명단 순서로 기초 배치 표시
     store.update({ lastAssignment: null });
     const rosterOrder = createRosterOrder(data);
-    renderSeatGrid(container, data, rosterOrder);
+    renderSeatGrid(container, data, rosterOrder, { teacherView: isTeacherView });
     drawBtn.style.display = 'inline-flex';
     redrawBtn.style.display = 'none';
     showResultToolbar(false);
@@ -154,9 +182,10 @@ export function initStudentScreen() {
     if (historyFallback) delete result._historyFallback;
 
     store.update({ lastAssignment: { mapping: result, timestamp: Date.now() }, ...historyUpdate });
+    currentAssignment = result;
 
     // 결과 애니메이션
-    renderSeatGrid(container, current, result, { animate: true });
+    renderSeatGrid(container, current, result, { animate: true, teacherView: isTeacherView });
 
     drawBtn.style.display = 'none';
     redrawBtn.style.display = 'inline-flex';
@@ -220,13 +249,14 @@ export function initStudentScreen() {
     }
 
     try {
-      const canvas = await renderToCanvas(container, current);
+      const canvas = await renderToCanvas(container, isTeacherView);
       canvas.toBlob((blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         const dateStr = new Date().toISOString().slice(0, 10);
-        a.download = `자리배치_${dateStr}.png`;
+        const viewSuffix = isTeacherView ? '_선생님시선' : '';
+        a.download = `자리배치${viewSuffix}_${dateStr}.png`;
         a.click();
         URL.revokeObjectURL(url);
         showToast('이미지로 저장했습니다.', 'success');
@@ -270,6 +300,7 @@ export function initStudentScreen() {
         showToast(`${dateStr} 자리 배치를 불러왔습니다.`, 'success');
 
         // 화면 갱신
+        currentAssignment = imported.assignment;
         renderCurrent(true);
         drawBtn.style.display = 'none';
         redrawBtn.style.display = 'inline-flex';
@@ -283,9 +314,49 @@ export function initStudentScreen() {
     e.target.value = ''; // reset
   });
 
-  // === 인쇄 ===
+  // === 인쇄 (양면 보기: 학생 시선 + 선생님 시선) ===
   printBtn.addEventListener('click', () => {
+    const printDual = document.getElementById('print-dual');
+    const current = store.load();
+    if (!current.lastAssignment) {
+      window.print();
+      return;
+    }
+
+    // 인쇄용 양면 보기 생성
+    printDual.innerHTML = '';
+
+    // 학생 시선
+    const studentLabel = document.createElement('div');
+    studentLabel.className = 'print-view-label';
+    studentLabel.textContent = '[ 학생 시선 ]';
+    printDual.appendChild(studentLabel);
+
+    const studentContainer = document.createElement('div');
+    studentContainer.className = 'seat-grid-container';
+    renderSeatGrid(studentContainer, current, current.lastAssignment.mapping, { teacherView: false });
+    printDual.appendChild(studentContainer);
+
+    // 선생님 시선
+    const teacherLabel = document.createElement('div');
+    teacherLabel.className = 'print-view-label';
+    teacherLabel.textContent = '[ 선생님 시선 ]';
+    printDual.appendChild(teacherLabel);
+
+    const teacherContainer = document.createElement('div');
+    teacherContainer.className = 'seat-grid-container';
+    renderSeatGrid(teacherContainer, current, current.lastAssignment.mapping, { teacherView: true });
+    printDual.appendChild(teacherContainer);
+
+    // 원본 배치도 숨기기
+    container.classList.add('print-hidden');
     window.print();
+
+    // 인쇄 후 정리
+    setTimeout(() => {
+      printDual.innerHTML = '';
+      container.classList.remove('print-hidden');
+    }, 1000);
   });
 
   // === 전체 화면 ===
@@ -318,7 +389,7 @@ export function initStudentScreen() {
     if (d.students.length === 0) return;
 
     const rosterOrder = createRosterOrder(d);
-    renderSeatGrid(container, d, rosterOrder);
+    renderSeatGrid(container, d, rosterOrder, { teacherView: isTeacherView });
     drawBtn.style.display = 'inline-flex';
     redrawBtn.style.display = 'none';
     showResultToolbar(false);
@@ -367,18 +438,17 @@ function slotAnimation(container, data) {
 
 /**
  * 배치 결과를 Canvas에 렌더링하여 이미지로 변환
+ * @param {HTMLElement} container - 배치도 컨테이너 (이미 올바른 시선으로 렌더링된 상태)
+ * @param {boolean} teacherView - 선생님 시선 여부 (제목/파일명용)
  */
-function renderToCanvas(container) {
+function renderToCanvas(container, teacherView = false) {
   return new Promise((resolve) => {
-    const gridEl = container.querySelector('.seat-grid, .pair-grid, .ushape-grid, [style*="position:relative"]');
     const blackboardEl = container.querySelector('.blackboard');
-
     const seats = container.querySelectorAll('.seat');
     if (seats.length === 0) {
       throw new Error('No seats');
     }
 
-    // Calculate bounds
     const containerRect = container.getBoundingClientRect();
     const padding = 40;
     const titleHeight = 50;
@@ -386,7 +456,7 @@ function renderToCanvas(container) {
     const canvasHeight = containerRect.height + padding * 2 + titleHeight;
 
     const canvas = document.createElement('canvas');
-    canvas.width = canvasWidth * 2; // 2x for retina
+    canvas.width = canvasWidth * 2;
     canvas.height = canvasHeight * 2;
     const ctx = canvas.getContext('2d');
     ctx.scale(2, 2);
@@ -400,20 +470,22 @@ function renderToCanvas(container) {
     ctx.font = 'bold 20px "Noto Sans KR", sans-serif';
     ctx.textAlign = 'center';
     const dateStr = new Date().toLocaleDateString('ko-KR');
-    ctx.fillText(`자리 배치 - ${dateStr}`, canvasWidth / 2, 30);
+    const viewLabel = teacherView ? ' (선생님 시선)' : '';
+    ctx.fillText(`자리 배치${viewLabel} - ${dateStr}`, canvasWidth / 2, 30);
 
     // Blackboard
     if (blackboardEl) {
       const bbRect = blackboardEl.getBoundingClientRect();
       const bbX = bbRect.left - containerRect.left + padding;
-      const bbY = titleHeight;
-      ctx.fillStyle = '#2D5016';
+      const bbY = bbRect.top - containerRect.top + padding + titleHeight;
+      const isPodium = blackboardEl.classList.contains('podium');
+      ctx.fillStyle = isPodium ? '#4A3728' : '#2D5016';
       roundRect(ctx, bbX, bbY, bbRect.width, bbRect.height, 4);
       ctx.fill();
-      ctx.fillStyle = '#D1FAE5';
+      ctx.fillStyle = isPodium ? '#F5E6D3' : '#D1FAE5';
       ctx.font = '14px "Noto Sans KR", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('칠 판', bbX + bbRect.width / 2, bbY + bbRect.height / 2 + 5);
+      ctx.fillText(blackboardEl.textContent, bbX + bbRect.width / 2, bbY + bbRect.height / 2 + 5);
     }
 
     // Seats
@@ -422,7 +494,6 @@ function renderToCanvas(container) {
       const x = seatRect.left - containerRect.left + padding;
       const y = seatRect.top - containerRect.top + padding + titleHeight;
 
-      // Background
       const isAssigned = seat.classList.contains('assigned');
       const isFixed = seat.classList.contains('fixed');
       ctx.fillStyle = isFixed ? '#FEF3C7' : isAssigned ? '#D1FAE5' : '#F1F5F9';
@@ -432,7 +503,6 @@ function renderToCanvas(container) {
       ctx.fill();
       ctx.stroke();
 
-      // Number
       const numEl = seat.querySelector('.seat-number');
       if (numEl) {
         ctx.fillStyle = '#94A3B8';
@@ -441,7 +511,6 @@ function renderToCanvas(container) {
         ctx.fillText(numEl.textContent, x + 4, y + 12);
       }
 
-      // Name
       const nameEl = seat.querySelector('.seat-name');
       if (nameEl && nameEl.textContent) {
         ctx.fillStyle = '#1E293B';

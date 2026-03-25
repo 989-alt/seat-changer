@@ -54,10 +54,28 @@ export function initTeacherScreen() {
   const previewTitle = document.getElementById('preview-title');
   const seatGrid = document.getElementById('teacher-seat-grid');
   const customEditor = document.getElementById('custom-editor');
+  const viewToggleBtnTeacher = document.getElementById('btn-toggle-view-teacher');
+
+  // === 시선 전환 (교사 미리보기) ===
+  let isTeacherViewPreview = store.load().viewPerspective === 'teacher';
+  let currentPreviewAssignment = null; // 미리보기에 표시 중인 배치 결과
+
+  function updateTeacherToggleBtn() {
+    viewToggleBtnTeacher.classList.toggle('active', isTeacherViewPreview);
+    viewToggleBtnTeacher.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> ${isTeacherViewPreview ? '선생님 시선' : '학생 시선'}`;
+  }
+  updateTeacherToggleBtn();
+
+  viewToggleBtnTeacher.addEventListener('click', () => {
+    isTeacherViewPreview = !isTeacherViewPreview;
+    store.update({ viewPerspective: isTeacherViewPreview ? 'teacher' : 'student' });
+    updateTeacherToggleBtn();
+    refreshPreview();
+  });
 
   function refreshPreview() {
     const data = store.load();
-    const assignment = data.lastAssignment?.mapping || null;
+    const assignment = currentPreviewAssignment || data.lastAssignment?.mapping || null;
 
     if (data.layoutType === 'custom') {
       // 자유배치: 캔버스 편집기를 우측에, 미리보기 그리드 숨기기
@@ -70,7 +88,8 @@ export function initTeacherScreen() {
       customEditor.style.display = 'none';
       previewTitle.textContent = '배치도 미리보기';
       renderSeatGrid(seatGrid, data, assignment, {
-        fixedSeats: data.fixedSeats
+        fixedSeats: data.fixedSeats,
+        teacherView: isTeacherViewPreview
       });
     }
     checkSeatWarning();
@@ -286,10 +305,11 @@ export function initTeacherScreen() {
     const result = randomizeSeats(current);
     if (result) {
       // 미리보기 전용: store에 저장하지 않음 (학생 화면에 넘어가지 않음)
+      currentPreviewAssignment = result;
       if (current.layoutType === 'custom') {
         seatGrid.style.display = 'block';
       }
-      renderSeatGrid(seatGrid, current, result, { fixedSeats: current.fixedSeats, animate: true });
+      renderSeatGrid(seatGrid, current, result, { fixedSeats: current.fixedSeats, animate: true, teacherView: isTeacherViewPreview });
 
       // 결과 검증
       const violations = verifyAssignment(result, current);

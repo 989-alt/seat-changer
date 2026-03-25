@@ -37,19 +37,22 @@ export const ushapeLayout = {
   render(container, settings, assignment, options = {}) {
     const { columns, rows } = settings;
     const positions = this.getSeatPositions(settings);
+    const tv = options.teacherView;
 
     const topSeats = positions.filter(p => p.row === 0);
     const leftSeats = positions.filter(p => p.row > 0 && p.col === 0);
     const rightSeats = positions.filter(p => p.row > 0 && p.col === columns - 1);
 
+    let animIdx = 0;
     function renderSeat(pos) {
       const name = assignment ? assignment[pos.index] : null;
       const cls = name ? 'seat assigned' : 'seat empty';
       const extraCls = options.highlightSeat === pos.index ? ' highlight' : '';
       const revealCls = options.animate ? ' reveal' : '';
-      const delay = options.animate ? `animation-delay: ${pos.index * 60}ms` : '';
+      const delay = options.animate ? `animation-delay: ${animIdx * 60}ms` : '';
       const safeName = escapeHTML(name);
       const label = name ? `${pos.index + 1}번 자리: ${safeName}` : `${pos.index + 1}번 자리 (비어있음)`;
+      animIdx++;
 
       return `<div class="${cls}${extraCls}${revealCls}" data-seat="${pos.index}" style="${delay}"
         tabindex="0" role="button" aria-label="${label}">
@@ -58,25 +61,41 @@ export const ushapeLayout = {
       </div>`;
     }
 
-    let html = '<div class="blackboard">칠 판</div>';
+    let html = tv ? '' : '<div class="blackboard">칠  판</div>';
     html += '<div class="ushape-grid">';
 
-    // 윗줄
-    html += '<div class="ushape-row">';
-    topSeats.forEach(p => html += renderSeat(p));
-    html += '</div>';
+    if (tv) {
+      // 선생님 시선: 양쪽 먼저(좌우 반전), 아랫줄(역순)이 위로
+      html += '<div class="ushape-side-wrapper">';
+      html += '<div class="ushape-side">';
+      [...rightSeats].reverse().forEach(p => html += renderSeat(p));
+      html += '</div>';
+      html += '<div class="ushape-side">';
+      [...leftSeats].reverse().forEach(p => html += renderSeat(p));
+      html += '</div>';
+      html += '</div>';
 
-    // 양쪽
-    html += '<div class="ushape-side-wrapper">';
-    html += '<div class="ushape-side">';
-    leftSeats.forEach(p => html += renderSeat(p));
-    html += '</div>';
-    html += '<div class="ushape-side">';
-    rightSeats.forEach(p => html += renderSeat(p));
-    html += '</div>';
-    html += '</div>';
+      html += '<div class="ushape-row">';
+      [...topSeats].reverse().forEach(p => html += renderSeat(p));
+      html += '</div>';
+    } else {
+      // 학생 시선: 기존
+      html += '<div class="ushape-row">';
+      topSeats.forEach(p => html += renderSeat(p));
+      html += '</div>';
+
+      html += '<div class="ushape-side-wrapper">';
+      html += '<div class="ushape-side">';
+      leftSeats.forEach(p => html += renderSeat(p));
+      html += '</div>';
+      html += '<div class="ushape-side">';
+      rightSeats.forEach(p => html += renderSeat(p));
+      html += '</div>';
+      html += '</div>';
+    }
 
     html += '</div>';
+    if (tv) html += '<div class="blackboard podium">교  탁</div>';
     container.innerHTML = html;
   }
 };

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; script-src 'self'; img-src 'self' blob: data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; style-src 'self' file: https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; script-src 'self' file:; img-src 'self' file: blob: data:;">
   <link rel="stylesheet" href="css/common.css">
   <link rel="stylesheet" href="css/teacher.css">
   <link rel="stylesheet" href="css/student.css">
@@ -197,7 +197,15 @@
 
       <!-- 오른쪽: 미리보기 -->
       <main class="preview-panel">
-        <h2 id="preview-title">배치도 미리보기</h2>
+        <div class="preview-header-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <h2 id="preview-title" style="margin:0;">배치도 미리보기</h2>
+          <div class="view-toggle-wrap" style="margin-bottom:0;">
+            <button id="btn-toggle-view-teacher" class="btn btn-outline btn-sm view-toggle-btn" title="시선 전환">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              학생 시선
+            </button>
+          </div>
+        </div>
         <div id="teacher-seat-grid" class="seat-grid-container"></div>
 
         <!-- 자유배치 캔버스 편집기 (우측에 표시) -->
@@ -232,7 +240,17 @@
         <p class="hint">교사 설정에서 명단과 배치를 먼저 설정해 주세요</p>
       </div>
 
+      <div class="view-toggle-wrap">
+        <button id="btn-toggle-view-student" class="btn btn-outline btn-sm view-toggle-btn" title="시선 전환">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          학생 시선
+        </button>
+      </div>
+
       <div id="student-seat-grid" class="seat-grid-container student-grid"></div>
+
+      <!-- 인쇄용 양면 보기 -->
+      <div id="print-dual" class="print-dual-wrapper"></div>
 
       <div class="student-actions">
         <button id="btn-draw" class="btn btn-draw">

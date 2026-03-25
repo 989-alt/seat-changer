@@ -54,7 +54,8 @@ export const store = {
         genderRule: ['none','same','mixed'].includes(parsed.genderRule) ? parsed.genderRule : 'none',
         assignmentHistory: Array.isArray(parsed.assignmentHistory) ? parsed.assignmentHistory : [],
         historyExcludeCount: [1,2,3].includes(parsed.historyExcludeCount) ? parsed.historyExcludeCount : 1,
-        useHistoryExclusion: parsed.useHistoryExclusion !== false
+        useHistoryExclusion: parsed.useHistoryExclusion !== false,
+        viewPerspective: ['student','teacher'].includes(parsed.viewPerspective) ? parsed.viewPerspective : 'student'
       };
       data.classSize = data.students.length;
       this.save(data);

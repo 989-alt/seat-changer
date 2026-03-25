@@ -27,7 +27,8 @@ export function renderSeatGrid(container, data, assignment, options = {}) {
   layout.render(container, data.layoutSettings, assignment, {
     fixedSeats: data.fixedSeats,
     animate: options.animate,
-    highlightSeat: options.highlightSeat
+    highlightSeat: options.highlightSeat,
+    teacherView: options.teacherView
   });
 
   // 자리 클릭 이벤트
