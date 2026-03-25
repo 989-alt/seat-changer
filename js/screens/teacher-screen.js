@@ -288,7 +288,8 @@ export function initTeacherScreen() {
   });
 
   // 미리 뽑기 테스트
-  document.getElementById('btn-preview-randomize').addEventListener('click', () => {
+  document.getElementById('btn-preview-randomize').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-preview-randomize');
     const current = store.load();
 
     if (current.students.length === 0) {
@@ -302,7 +303,12 @@ export function initTeacherScreen() {
       return;
     }
 
+    btn.disabled = true;
+    // 브라우저에 프레임 양보 → 버튼 비활성 상태가 렌더링된 후 계산 시작
+    await new Promise(r => setTimeout(r, 0));
+
     const result = randomizeSeats(current);
+    btn.disabled = false;
     if (result) {
       // 미리보기 전용: store에 저장하지 않음 (학생 화면에 넘어가지 않음)
       currentPreviewAssignment = result;
