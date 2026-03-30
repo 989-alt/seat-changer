@@ -2,11 +2,15 @@
 import { store } from '../data/store.js';
 import { validateStudents } from '../data/models.js';
 import { showToast } from '../utils/toast.js';
+import { parseRosterFile } from '../utils/roster-parser.js';
+import { escapeHTML } from '../layouts/layout-engine.js';
 
 export function initRoster() {
   const textarea = document.getElementById('roster-input');
   const countEl = document.getElementById('student-count');
   const saveBtn = document.getElementById('btn-save-roster');
+  const uploadBtn = document.getElementById('btn-upload-roster');
+  const rosterFile = document.getElementById('roster-file');
 
   // 초기 로드
   const data = store.load();
@@ -21,6 +25,28 @@ export function initRoster() {
     countEl.textContent = `${names.length}명`;
   });
 
+  // === 파일 업로드 ===
+  if (uploadBtn && rosterFile) {
+    uploadBtn.addEventListener('click', () => rosterFile.click());
+    rosterFile.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      try {
+        const names = await parseRosterFile(file);
+        if (names.length > 0) {
+          textarea.value = names.join('\n');
+          countEl.textContent = `${names.length}명`;
+          showToast(`${file.name}에서 ${names.length}명을 불러왔습니다. '명단 저장'을 눌러 적용하세요.`, 'success', 4000);
+        }
+      } catch (err) {
+        showToast(err.message || '파일을 읽을 수 없습니다.', 'error', 3500);
+      }
+
+      e.target.value = '';
+    });
+  }
+
   // 성별 리스트 렌더링
   const genderListEl = document.getElementById('gender-list');
 
@@ -33,13 +59,14 @@ export function initRoster() {
     }
     const genders = data.studentGenders || {};
     let html = '<h3 class="gender-list-title">성별 지정</h3>';
-    data.students.forEach(name => {
+    data.students.forEach((name, idx) => {
       const g = genders[name] || '';
-      html += `<div class="gender-row" data-student="${name}">
-        <span class="gender-student-name">${name}</span>
-        <label class="gender-radio"><input type="radio" name="gender-${name}" value="M" ${g === 'M' ? 'checked' : ''}> 남</label>
-        <label class="gender-radio"><input type="radio" name="gender-${name}" value="F" ${g === 'F' ? 'checked' : ''}> 녀</label>
-        <label class="gender-radio"><input type="radio" name="gender-${name}" value="" ${g === '' ? 'checked' : ''}> 미지정</label>
+      const safe = escapeHTML(name);
+      html += `<div class="gender-row" data-student="${safe}" data-index="${idx}">
+        <span class="gender-student-name">${safe}</span>
+        <label class="gender-radio"><input type="radio" name="gender-${idx}" value="M" ${g === 'M' ? 'checked' : ''}> 남</label>
+        <label class="gender-radio"><input type="radio" name="gender-${idx}" value="F" ${g === 'F' ? 'checked' : ''}> 녀</label>
+        <label class="gender-radio"><input type="radio" name="gender-${idx}" value="" ${g === '' ? 'checked' : ''}> 미지정</label>
       </div>`;
     });
     genderListEl.innerHTML = html;
@@ -49,7 +76,9 @@ export function initRoster() {
       radio.addEventListener('change', () => {
         const d = store.load();
         const studentGenders = { ...(d.studentGenders || {}) };
-        const studentName = radio.closest('.gender-row').dataset.student;
+        const idx = parseInt(radio.closest('.gender-row').dataset.index, 10);
+        const studentName = d.students[idx];
+        if (!studentName) return;
         if (radio.value) {
           studentGenders[studentName] = radio.value;
         } else {

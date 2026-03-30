@@ -5,21 +5,25 @@
 // 3. 체커보드 패턴으로 성별 좌석 사전 분할 (검색 공간 ~50% 감소)
 // 4. 가용 좌석 Set 관리 (배정된 좌석 재순회 제거)
 // 5. 시도 횟수 축소 + 조기 종료
+// 6. 분리 규칙 역방향 룩업 맵 (학생→상대 학생 O(1) 조회)
+// 7. 비동기 실행으로 UI 블로킹 방지
 
 import { examLayout } from '../layouts/exam-layout.js';
 import { pairLayout } from '../layouts/pair-layout.js';
 import { ushapeLayout } from '../layouts/ushape-layout.js';
 import { customLayout } from '../layouts/custom-layout.js';
+import { groupLayout } from '../layouts/group-layout.js';
 
-const layoutMap = {
+const seatLayoutMap = {
   exam: examLayout,
   pair: pairLayout,
   ushape: ushapeLayout,
-  custom: customLayout
+  custom: customLayout,
+  group: groupLayout
 };
 
 const MAX_ATTEMPTS = 15;
-const TIMEOUT_MS = 3000;
+const TIMEOUT_MS = 2000;
 
 /**
  * Fisher-Yates shuffle (in-place)
@@ -33,12 +37,45 @@ function shuffle(arr) {
 }
 
 /**
- * 제약 기반 랜덤 배치
- * @returns {{ [seatIndex: number]: string } | null} 배정 결과 또는 실패 시 null
+ * UI 스레드 양보 (16ms 이상 블로킹 방지)
  */
-export function randomizeSeats(data) {
+function yieldToUI() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+/**
+ * 분리 규칙 역방향 룩업 맵 생성
+ * 학생 이름 → 관련 규칙 배열 (O(1) 조회)
+ */
+function buildRuleLookup(separationRules) {
+  const map = {};
+  for (const rule of separationRules) {
+    if (!map[rule.studentA]) map[rule.studentA] = [];
+    if (!map[rule.studentB]) map[rule.studentB] = [];
+    map[rule.studentA].push({ other: rule.studentB, minDistance: rule.minDistance });
+    map[rule.studentB].push({ other: rule.studentA, minDistance: rule.minDistance });
+  }
+  return map;
+}
+
+/**
+ * 학생 이름 → 좌석 인덱스 역방향 맵 생성
+ */
+function buildNameToSeatMap(assignment) {
+  const map = {};
+  for (const [seat, name] of Object.entries(assignment)) {
+    map[name] = Number(seat);
+  }
+  return map;
+}
+
+/**
+ * 제약 기반 랜덤 배치 (비동기 - UI 블로킹 방지)
+ * @returns {Promise<{ [seatIndex: number]: string } | null>} 배정 결과 또는 실패 시 null
+ */
+export async function randomizeSeats(data) {
   const { students, layoutType, layoutSettings, fixedSeats, separationRules } = data;
-  const layout = layoutMap[layoutType];
+  const layout = seatLayoutMap[layoutType];
   if (!layout) return null;
 
   const positions = layout.getSeatPositions(layoutSettings);
@@ -54,22 +91,29 @@ export function randomizeSeats(data) {
   // 인접 좌석 맵 사전 계산 (성별 제약 최적화)
   const adjacencyMap = buildAdjacencyMap(positions, posMap, data);
 
+  // 분리 규칙 역방향 룩업 맵
+  const ruleLookup = buildRuleLookup(separationRules);
+
   const deadline = Date.now() + TIMEOUT_MS;
 
   // 1차: 모든 제약 (history 포함) 적용
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (Date.now() > deadline) break;
-    const result = tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, data, adjacencyMap, deadline);
+    // 매 시도마다 UI 양보
+    if (attempt > 0 && (attempt & 3) === 0) await yieldToUI();
+    const result = tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, data, adjacencyMap, deadline, ruleLookup);
     if (result) return result;
   }
 
   // 2차 폴백: history 제약 없이 재시도
   if (data.useHistoryExclusion !== false && (data.assignmentHistory || []).length > 0) {
+    await yieldToUI();
     const fallbackData = { ...data, useHistoryExclusion: false };
     const deadline2 = Date.now() + TIMEOUT_MS;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       if (Date.now() > deadline2) break;
-      const result = tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, fallbackData, adjacencyMap, deadline2);
+      if (attempt > 0 && (attempt & 3) === 0) await yieldToUI();
+      const result = tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, fallbackData, adjacencyMap, deadline2, ruleLookup);
       if (result) {
         result._historyFallback = true;
         return result;
@@ -261,7 +305,7 @@ function precomputeGenderSeats(students, availableSeats, posMap, data) {
   return result;
 }
 
-function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, data, adjacencyMap, deadline) {
+function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, separationRules, layout, data, adjacencyMap, deadline, ruleLookup) {
   const assignment = {};
   const assignedStudents = new Set();
   const availableSeats = new Set();
@@ -314,16 +358,19 @@ function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, sepa
     remaining.sort((a, b) => constraintScore[b] - constraintScore[a]);
   }
 
-  // 5. 백트래킹 배치
-  const success = backtrack(0, remaining, availableSeats, assignment, posMap, separationRules, layout, data, adjacencyMap, genderValidSeats, deadline);
+  // 5. 이름→좌석 역방향 맵 (분리 규칙 검증 최적화)
+  const nameToSeat = buildNameToSeatMap(assignment);
+
+  // 6. 백트래킹 배치
+  const success = backtrack(0, remaining, availableSeats, assignment, posMap, separationRules, layout, data, adjacencyMap, genderValidSeats, deadline, ruleLookup, nameToSeat);
   return success ? assignment : null;
 }
 
-function backtrack(studentIdx, students, availableSeats, assignment, posMap, rules, layout, data, adjacencyMap, genderValidSeats, deadline) {
+function backtrack(studentIdx, students, availableSeats, assignment, posMap, rules, layout, data, adjacencyMap, genderValidSeats, deadline, ruleLookup, nameToSeat) {
   if (studentIdx >= students.length) return true;
 
-  // 주기적 타임아웃 체크 (매 호출이 아닌 8명마다 → Date.now() 오버헤드 최소화)
-  if ((studentIdx & 7) === 0 && Date.now() > deadline) return false;
+  // 주기적 타임아웃 체크 (매 호출이 아닌 4명마다)
+  if ((studentIdx & 3) === 0 && Date.now() > deadline) return false;
 
   const student = students[studentIdx];
 
@@ -340,8 +387,8 @@ function backtrack(studentIdx, students, availableSeats, assignment, posMap, rul
   shuffle(candidates);
 
   for (const seatIdx of candidates) {
-    // 분리 규칙 검증
-    if (!checkConstraints(student, seatIdx, assignment, posMap, rules, layout)) continue;
+    // 분리 규칙 검증 (역방향 룩업 맵 사용 - O(규칙 수) instead of O(배정 학생 수))
+    if (!checkConstraints(student, seatIdx, assignment, posMap, rules, layout, ruleLookup, nameToSeat)) continue;
 
     // 성별 제약 검증 (사전 계산된 인접 맵 사용)
     if (!checkGenderConstraintFast(student, seatIdx, assignment, adjacencyMap, data)) continue;
@@ -349,40 +396,43 @@ function backtrack(studentIdx, students, availableSeats, assignment, posMap, rul
     // 이전 자리 제약 검증
     if (!checkHistoryConstraint(student, seatIdx, data)) continue;
 
+    // 모둠원 중복 방지 검증
+    if (!checkGroupConstraint(student, seatIdx, assignment, data)) continue;
+
     // 배치
     assignment[seatIdx] = student;
     availableSeats.delete(seatIdx);
+    nameToSeat[student] = seatIdx;
 
-    if (backtrack(studentIdx + 1, students, availableSeats, assignment, posMap, rules, layout, data, adjacencyMap, genderValidSeats, deadline)) {
+    if (backtrack(studentIdx + 1, students, availableSeats, assignment, posMap, rules, layout, data, adjacencyMap, genderValidSeats, deadline, ruleLookup, nameToSeat)) {
       return true;
     }
 
     // 되돌리기
     delete assignment[seatIdx];
     availableSeats.add(seatIdx);
+    delete nameToSeat[student];
   }
 
   return false;
 }
 
-function checkConstraints(student, seatIdx, assignment, posMap, rules, layout) {
+function checkConstraints(student, seatIdx, assignment, posMap, rules, layout, ruleLookup, nameToSeat) {
   const pos = posMap[seatIdx];
   if (!pos) return false;
 
-  for (const rule of rules) {
-    let otherStudent = null;
-    if (rule.studentA === student) otherStudent = rule.studentB;
-    else if (rule.studentB === student) otherStudent = rule.studentA;
-    else continue;
+  // 역방향 룩업: 이 학생과 관련된 규칙만 O(1)로 조회
+  const studentRules = ruleLookup[student];
+  if (!studentRules || studentRules.length === 0) return true;
 
-    // 상대 학생이 이미 배정되었는지 확인
-    for (const [assignedSeat, assignedName] of Object.entries(assignment)) {
-      if (assignedName === otherStudent) {
-        const otherPos = posMap[Number(assignedSeat)];
-        if (otherPos && layout.distance(pos, otherPos) <= rule.minDistance) {
-          return false;
-        }
-      }
+  for (const { other, minDistance } of studentRules) {
+    // 상대 학생이 배정되었는지 역방향 맵으로 O(1) 조회
+    const otherSeat = nameToSeat[other];
+    if (otherSeat === undefined) continue;
+
+    const otherPos = posMap[otherSeat];
+    if (otherPos && layout.distance(pos, otherPos) <= minDistance) {
+      return false;
     }
   }
 
@@ -442,6 +492,49 @@ function checkHistoryConstraint(student, seatIdx, data) {
 
   for (const mapping of recordsToCheck) {
     if (mapping[seatIdx] === student) return false;
+  }
+
+  return true;
+}
+
+/**
+ * 모둠원 중복 방지 제약 검증
+ * 같은 모둠 클러스터에 배정된 학생들이 이전 모둠에서 함께했는지 체크
+ */
+function checkGroupConstraint(student, seatIdx, assignment, data) {
+  if (data.layoutType !== 'group') return true;
+  if (data.useGroupExclusion === false) return true;
+
+  const groupHistory = data.groupHistory || [];
+  if (groupHistory.length === 0) return true;
+
+  const groupSize = data.layoutSettings.groupSize || 4;
+  const myGroupIdx = Math.floor(seatIdx / groupSize);
+  const excludeCount = data.groupExcludeCount || 1;
+  const recentHistory = groupHistory.slice(-excludeCount);
+
+  // 현재 같은 모둠에 이미 배정된 학생 찾기
+  const groupStart = myGroupIdx * groupSize;
+  const groupEnd = groupStart + groupSize;
+  const currentGroupmates = [];
+  for (let i = groupStart; i < groupEnd; i++) {
+    if (assignment[i] && assignment[i] !== student) {
+      currentGroupmates.push(assignment[i]);
+    }
+  }
+
+  if (currentGroupmates.length === 0) return true;
+
+  // 이전 기록에서 student와 currentGroupmates가 같은 모둠이었는지 확인
+  for (const record of recentHistory) {
+    const groups = record.groups || [];
+    for (const group of groups) {
+      if (group.includes(student)) {
+        for (const mate of currentGroupmates) {
+          if (group.includes(mate)) return false;
+        }
+      }
+    }
   }
 
   return true;

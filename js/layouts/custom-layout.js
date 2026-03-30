@@ -174,10 +174,13 @@ export const customLayout = {
 
   getSeatPositions(settings) {
     const desks = settings.customDesks || [];
+    // 그리드 스냅 단위(GRID_SIZE=20)로 정규화하여
+    // 인접 판단이 정확하도록 함 (픽셀 좌표 직접 나누기 → 충돌 문제 해결)
+    const unit = GRID_SIZE || 20;
     return desks.map((d, i) => ({
       index: i,
-      row: Math.round(d.y / DESK_H),
-      col: Math.round(d.x / DESK_W)
+      row: Math.round(d.y / (DESK_H + unit)),
+      col: Math.round(d.x / (DESK_W + unit))
     }));
   },
 
@@ -347,8 +350,8 @@ export const customLayout = {
   _getPos(e) {
     const rect = this._canvas.getBoundingClientRect();
     return {
-      x: (e.clientX - rect.left) * (this._canvasW / rect.width),
-      y: (e.clientY - rect.top) * (this._canvasH / rect.height)
+      x: rect.width ? (e.clientX - rect.left) * (this._canvasW / rect.width) : 0,
+      y: rect.height ? (e.clientY - rect.top) * (this._canvasH / rect.height) : 0
     };
   },
 

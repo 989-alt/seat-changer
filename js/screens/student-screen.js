@@ -2,9 +2,9 @@
 import { store } from '../data/store.js';
 import { renderSeatGrid, getTotalSeatsForLayout, getLayout } from '../components/seat-grid.js';
 import { randomizeSeats } from '../algorithm/seat-randomizer.js';
-import { showToast, showConfirm } from '../utils/toast.js';
+import { showToast, showConfirm, trapFocus } from '../utils/toast.js';
 
-function verifyAssignment(result, data) {
+function verifyStudentAssignment(result, data) {
   const layout = getLayout(data.layoutType);
   const positions = layout.getSeatPositions(data.layoutSettings);
   const posMap = {};
@@ -125,7 +125,14 @@ export function initStudentScreen() {
   }
 
   // 자리 뽑기
+  let _drawRunning = false;
   async function doDraw(isRedraw = false) {
+    if (_drawRunning) return; // 이중 실행 방지
+    _drawRunning = true;
+    drawBtn.disabled = true;
+    redrawBtn.disabled = true;
+
+    try {
     const current = store.load();
     if (current.students.length === 0) {
       showToast('학생 명단이 없습니다. 교사 설정에서 명단을 입력하세요.', 'warning');
@@ -134,6 +141,14 @@ export function initStudentScreen() {
 
     // 학생 수 vs 좌석 수 검증
     const totalSeats = getTotalSeatsForLayout(current);
+    if (totalSeats === 0) {
+      if (current.layoutType === 'custom') {
+        showToast('자유배치 책상이 없습니다. 교사 설정에서 책상을 추가하세요.', 'warning');
+      } else {
+        showToast('좌석이 설정되지 않았습니다. 교사 설정을 확인하세요.', 'warning');
+      }
+      return;
+    }
     if (current.students.length > totalSeats) {
       showToast(`학생 수(${current.students.length}명)가 좌석 수(${totalSeats}석)보다 많습니다.`, 'error');
       return;
@@ -145,20 +160,15 @@ export function initStudentScreen() {
       if (!confirmed) return;
     }
 
-    drawBtn.disabled = true;
-    redrawBtn.disabled = true;
     drawBtn.classList.add('loading');
 
     // 슬롯머신 애니메이션
     await slotAnimation(container, current);
 
-    // 실제 배치
-    const result = randomizeSeats(current);
+    // 실제 배치 (비동기 - UI 블로킹 방지)
+    const result = await randomizeSeats(current);
     if (!result) {
       showToast('자리 배치에 실패했습니다. 조건을 확인해 주세요.', 'error', 3500);
-      drawBtn.disabled = false;
-      redrawBtn.disabled = false;
-      drawBtn.classList.remove('loading');
       return;
     }
 
@@ -177,11 +187,31 @@ export function initStudentScreen() {
       historyUpdate.assignmentHistory = history;
     }
 
+    // 모둠 히스토리 저장
+    const groupHistoryUpdate = {};
+    if (current.layoutType === 'group') {
+      const groupSize = current.layoutSettings.groupSize || 4;
+      const totalSeats = Object.keys(result).length;
+      const groups = [];
+      const groupCount = Math.ceil(totalSeats / groupSize);
+      for (let g = 0; g < groupCount; g++) {
+        const members = [];
+        for (let s = g * groupSize; s < Math.min((g + 1) * groupSize, totalSeats); s++) {
+          if (result[s]) members.push(result[s]);
+        }
+        if (members.length > 0) groups.push(members);
+      }
+      const gh = [...(current.groupHistory || [])];
+      gh.push({ groups, timestamp: Date.now(), date: new Date().toISOString().slice(0, 10) });
+      while (gh.length > 5) gh.shift();
+      groupHistoryUpdate.groupHistory = gh;
+    }
+
     // history fallback 확인
     const historyFallback = result._historyFallback;
     if (historyFallback) delete result._historyFallback;
 
-    store.update({ lastAssignment: { mapping: result, timestamp: Date.now() }, ...historyUpdate });
+    store.update({ lastAssignment: { mapping: result, timestamp: Date.now() }, ...historyUpdate, ...groupHistoryUpdate });
     currentAssignment = result;
 
     // 결과 애니메이션
@@ -195,13 +225,20 @@ export function initStudentScreen() {
     showResultToolbar(true);
 
     // 결과 검증
-    const violations = verifyAssignment(result, current);
+    const violations = verifyStudentAssignment(result, current);
     if (violations.length > 0) {
       showToast(`규칙 위반 ${violations.length}건 발견`, 'error', 4000);
     } else if (historyFallback) {
-      showToast('이전 자리를 완전히 피할 수 없어 일부 중복이 있을 수 있습니다.', 'warning', 4000);
+      showToast('이전 자리를 완전히 피할 수 없어 일부 중복이 있을 수 있습니다. (기록 자동 저장됨)', 'warning', 4000);
     } else {
-      showToast('자리 배치 완료!', 'success');
+      const historyCount = (store.load().assignmentHistory || []).length;
+      showToast(`자리 배치 완료! (기록 ${historyCount}건 저장됨)`, 'success');
+    }
+    } finally {
+      _drawRunning = false;
+      drawBtn.disabled = false;
+      redrawBtn.disabled = false;
+      drawBtn.classList.remove('loading');
     }
   }
 
@@ -282,14 +319,17 @@ export function initStudentScreen() {
           return;
         }
 
-        // 전체 설정 + 결과 복원
+        // importJSON으로 검증 경유
+        const importData = { ...imported };
+        delete importData.type;
+        delete importData.version;
+        delete importData.assignment;
+        delete importData.date;
+        if (!store.importJSON(JSON.stringify(importData))) {
+          showToast('잘못된 결과 파일입니다.', 'error');
+          return;
+        }
         store.update({
-          students: imported.students || [],
-          classSize: (imported.students || []).length,
-          layoutType: imported.layoutType || 'exam',
-          layoutSettings: imported.layoutSettings || { columns: 6, rows: 5, customDesks: [] },
-          fixedSeats: imported.fixedSeats || [],
-          separationRules: imported.separationRules || [],
           lastAssignment: {
             mapping: imported.assignment,
             timestamp: imported.timestamp || Date.now()
@@ -352,11 +392,17 @@ export function initStudentScreen() {
     container.classList.add('print-hidden');
     window.print();
 
-    // 인쇄 후 정리
-    setTimeout(() => {
+    // 인쇄 후 정리 (afterprint 이벤트 사용)
+    function cleanupPrint() {
       printDual.innerHTML = '';
       container.classList.remove('print-hidden');
-    }, 1000);
+      window.removeEventListener('afterprint', cleanupPrint);
+    }
+    window.addEventListener('afterprint', cleanupPrint, { once: true });
+    // 폴백: afterprint 미지원 환경
+    setTimeout(() => {
+      if (container.classList.contains('print-hidden')) cleanupPrint();
+    }, 5000);
   });
 
   // === 전체 화면 ===
@@ -381,6 +427,98 @@ export function initStudentScreen() {
       screen.classList.remove('fullscreen');
     }
   });
+
+  // === 배치 기록 보기 ===
+  const historyBtn = document.getElementById('btn-history');
+  const historyModal = document.getElementById('history-modal');
+  const historyCloseBtn = document.getElementById('btn-history-close');
+  const historyList = document.getElementById('history-list');
+
+  if (historyBtn && historyModal) {
+    historyBtn.addEventListener('click', () => {
+      const current = store.load();
+      const history = current.assignmentHistory || [];
+      const lastAssignment = current.lastAssignment;
+
+      if (history.length === 0 && !lastAssignment) {
+        historyList.innerHTML = '<p class="empty-text" style="padding:2rem;text-align:center;color:#94A3B8">저장된 배치 기록이 없습니다.<br>자리 뽑기를 하면 자동으로 기록됩니다.</p>';
+      } else {
+        let html = '';
+
+        // 현재 배치
+        if (lastAssignment && lastAssignment.mapping) {
+          const date = new Date(lastAssignment.timestamp);
+          const dateStr = date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+          const timeStr = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+          const studentCount = Object.values(lastAssignment.mapping).filter(Boolean).length;
+          html += `<div class="history-item current">
+            <div class="history-badge">현재</div>
+            <div class="history-info">
+              <div class="history-date">${dateStr} ${timeStr}</div>
+              <div class="history-detail">${studentCount}명 배치</div>
+            </div>
+          </div>`;
+        }
+
+        // 과거 기록 (최신순)
+        for (let i = history.length - 1; i >= 0; i--) {
+          const record = history[i];
+          const date = new Date(record.timestamp);
+          const dateStr = date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+          const timeStr = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+          const studentCount = record.mapping ? Object.values(record.mapping).filter(Boolean).length : 0;
+          html += `<div class="history-item" data-history-index="${i}">
+            <div class="history-badge past">${history.length - i}회 전</div>
+            <div class="history-info">
+              <div class="history-date">${dateStr} ${timeStr}</div>
+              <div class="history-detail">${studentCount}명 배치</div>
+            </div>
+            <button class="btn btn-sm btn-outline history-restore-btn" data-idx="${i}" title="이 배치로 복원">복원</button>
+          </div>`;
+        }
+
+        historyList.innerHTML = html;
+
+        // 복원 버튼 이벤트
+        historyList.querySelectorAll('.history-restore-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx, 10);
+            const d = store.load();
+            const hist = d.assignmentHistory || [];
+            if (!hist[idx] || !hist[idx].mapping) return;
+            store.update({ lastAssignment: { mapping: hist[idx].mapping, timestamp: hist[idx].timestamp } });
+            currentAssignment = hist[idx].mapping;
+            renderSeatGrid(container, d, hist[idx].mapping, { animate: true, teacherView: isTeacherView });
+            drawBtn.style.display = 'none';
+            redrawBtn.style.display = 'inline-flex';
+            showResultToolbar(true);
+            closeHistoryModal();
+            showToast('이전 배치를 복원했습니다.', 'success');
+          });
+        });
+      }
+
+      historyModal.classList.add('active');
+      historyModal._prevFocus = document.activeElement;
+      historyModal._releaseTrap = trapFocus(historyModal);
+    });
+
+    function closeHistoryModal() {
+      if (historyModal._releaseTrap) historyModal._releaseTrap();
+      historyModal.classList.remove('active');
+      if (historyModal._prevFocus) historyModal._prevFocus.focus();
+    }
+
+    historyCloseBtn.addEventListener('click', closeHistoryModal);
+
+    historyModal.addEventListener('click', (e) => {
+      if (e.target === historyModal) closeHistoryModal();
+    });
+
+    historyModal.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeHistoryModal();
+    });
+  }
 
   // 탭 간 동기화
   store.initSync(() => {

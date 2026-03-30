@@ -14,9 +14,9 @@ export function initConstraintEditor() {
 
   function refresh() {
     const data = store.load();
-    populateSelect(selectA, data.students);
+    populateConstraintSelect(selectA, data.students);
     populateMultiSelect(bDropdown, bToggle, data.students, selectA.value);
-    renderList(list, data.separationRules);
+    renderConstraintList(list, data.separationRules);
   }
 
   // Toggle dropdown
@@ -95,7 +95,7 @@ export function initConstraintEditor() {
   return { refresh };
 }
 
-function populateSelect(select, students) {
+function populateConstraintSelect(select, students) {
   const current = select.value;
   select.innerHTML = '<option value="">기준 학생</option>';
   students.forEach(s => {
@@ -156,7 +156,7 @@ function updateToggleText(dropdown, toggle) {
   }
 }
 
-function renderList(list, rules) {
+function renderConstraintList(list, rules) {
   list.innerHTML = '';
 
   // 학생A별로 그룹화
@@ -183,7 +183,7 @@ function renderList(list, rules) {
       const data = store.load();
       data.separationRules.splice(i, 1);
       store.update({ separationRules: data.separationRules });
-      renderList(list, store.load().separationRules);
+      renderConstraintList(list, store.load().separationRules);
       showToast('규칙이 삭제되었습니다.', 'info');
     });
     li.appendChild(btn);

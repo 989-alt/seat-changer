@@ -11,8 +11,8 @@ export function initFixedSeatEditor(onUpdate) {
 
   function refresh() {
     const data = store.load();
-    populateSelect(select, data.students, data.fixedSeats.map(f => f.studentName));
-    renderList(list, data.fixedSeats, onUpdate);
+    populateFixedSelect(select, data.students, data.fixedSeats.map(f => f.studentName));
+    renderFixedList(list, data.fixedSeats, onUpdate);
 
     // 자리 번호 최대값 설정
     const totalSeats = getTotalSeats(data);
@@ -63,7 +63,7 @@ export function initFixedSeatEditor(onUpdate) {
   return { refresh };
 }
 
-function populateSelect(select, students, usedStudents) {
+function populateFixedSelect(select, students, usedStudents) {
   const current = select.value;
   select.innerHTML = '<option value="">학생 선택...</option>';
   students.forEach(s => {
@@ -79,7 +79,7 @@ function populateSelect(select, students, usedStudents) {
   }
 }
 
-function renderList(list, fixedSeats, onUpdate) {
+function renderFixedList(list, fixedSeats, onUpdate) {
   list.innerHTML = '';
   fixedSeats.forEach(fs => {
     const li = document.createElement('li');
@@ -99,7 +99,7 @@ function renderList(list, fixedSeats, onUpdate) {
       store.update({
         fixedSeats: data.fixedSeats.filter(f => f.studentName !== fs.studentName)
       });
-      renderList(list, store.load().fixedSeats, onUpdate);
+      renderFixedList(list, store.load().fixedSeats, onUpdate);
       if (onUpdate) onUpdate();
       showToast(`${fs.studentName}의 고정 자리가 해제되었습니다.`, 'info');
     });

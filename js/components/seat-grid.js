@@ -3,12 +3,14 @@ import { examLayout } from '../layouts/exam-layout.js';
 import { pairLayout } from '../layouts/pair-layout.js';
 import { ushapeLayout } from '../layouts/ushape-layout.js';
 import { customLayout } from '../layouts/custom-layout.js';
+import { groupLayout } from '../layouts/group-layout.js';
 
 const layoutMap = {
   exam: examLayout,
   pair: pairLayout,
   ushape: ushapeLayout,
-  custom: customLayout
+  custom: customLayout,
+  group: groupLayout
 };
 
 export function getLayout(type) {

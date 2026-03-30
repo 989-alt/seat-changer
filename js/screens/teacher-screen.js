@@ -7,6 +7,7 @@ import { initConstraintEditor } from '../components/constraint-editor.js';
 import { renderSeatGrid } from '../components/seat-grid.js';
 import { randomizeSeats } from '../algorithm/seat-randomizer.js';
 import { customLayout } from '../layouts/custom-layout.js';
+import { enableGroupDrag } from '../layouts/group-layout.js';
 import { getLayout } from '../components/seat-grid.js';
 import { showToast, showConfirm } from '../utils/toast.js';
 
@@ -49,6 +50,8 @@ function verifyAssignment(result, data) {
 }
 
 export function initTeacherScreen() {
+  // === 반 관리 ===
+  initClassManager();
   initRoster();
 
   const previewTitle = document.getElementById('preview-title');
@@ -58,7 +61,7 @@ export function initTeacherScreen() {
 
   // === 시선 전환 (교사 미리보기) ===
   let isTeacherViewPreview = store.load().viewPerspective === 'teacher';
-  let currentPreviewAssignment = null; // 미리보기에 표시 중인 배치 결과
+  let currentPreviewAssignment = null;
 
   function updateTeacherToggleBtn() {
     viewToggleBtnTeacher.classList.toggle('active', isTeacherViewPreview);
@@ -77,23 +80,32 @@ export function initTeacherScreen() {
     const data = store.load();
     const assignment = currentPreviewAssignment || data.lastAssignment?.mapping || null;
 
+    seatGrid.style.display = 'none';
+    customEditor.style.display = 'none';
+
     if (data.layoutType === 'custom') {
-      // 자유배치: 캔버스 편집기를 우측에, 미리보기 그리드 숨기기
-      seatGrid.style.display = 'none';
       customEditor.style.display = 'block';
       previewTitle.textContent = '자유배치 편집기';
     } else {
-      // 일반 배치: 그리드 미리보기
       seatGrid.style.display = 'block';
-      customEditor.style.display = 'none';
-      previewTitle.textContent = '배치도 미리보기';
+      previewTitle.textContent = data.layoutType === 'group' ? '모둠 배치 (드래그로 조정 가능)' : '배치도 미리보기';
       renderSeatGrid(seatGrid, data, assignment, {
         fixedSeats: data.fixedSeats,
         teacherView: isTeacherViewPreview
       });
+      // 모둠대형: 미리보기에서 드래그 활성화
+      if (data.layoutType === 'group' && !isTeacherViewPreview) {
+        enableGroupDrag(seatGrid, data.layoutSettings, (positions) => {
+          const d = store.load();
+          store.update({
+            layoutSettings: { ...d.layoutSettings, groupPositions: positions }
+          });
+        });
+      }
     }
     checkSeatWarning();
     updateCustomStatus();
+    updateGroupHistorySection();
   }
 
   function checkSeatWarning() {
@@ -118,7 +130,6 @@ export function initTeacherScreen() {
     }
   }
 
-  // 자유배치 상태바 업데이트
   function updateCustomStatus() {
     const data = store.load();
     const deskCountEl = document.getElementById('desk-count');
@@ -156,6 +167,7 @@ export function initTeacherScreen() {
   const tabs = document.querySelectorAll('.layout-tabs .tab');
   const gridOptions = document.getElementById('grid-options');
   const customOptions = document.getElementById('custom-options');
+  const groupOptions = document.getElementById('group-options');
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -167,13 +179,17 @@ export function initTeacherScreen() {
       tab.setAttribute('aria-selected', 'true');
       const type = tab.dataset.layout;
 
+      gridOptions.style.display = 'none';
+      customOptions.style.display = 'none';
+      groupOptions.style.display = 'none';
+
       if (type === 'custom') {
-        gridOptions.style.display = 'none';
         customOptions.style.display = 'block';
         initCustomCanvas();
+      } else if (type === 'group') {
+        groupOptions.style.display = 'flex';
       } else {
         gridOptions.style.display = 'flex';
-        customOptions.style.display = 'none';
       }
 
       store.update({ layoutType: type });
@@ -194,6 +210,9 @@ export function initTeacherScreen() {
     if (data.layoutType === 'custom') {
       gridOptions.style.display = 'none';
       customOptions.style.display = 'block';
+    } else if (data.layoutType === 'group') {
+      gridOptions.style.display = 'none';
+      groupOptions.style.display = 'flex';
     }
   }
 
@@ -222,6 +241,81 @@ export function initTeacherScreen() {
   }
   colInput.addEventListener('input', onGridChange);
   rowInput.addEventListener('input', onGridChange);
+
+  // === 모둠 옵션 ===
+  const groupSizeInput = document.getElementById('group-size');
+
+  if (groupSizeInput) {
+    groupSizeInput.value = data.layoutSettings.groupSize || 4;
+
+    groupSizeInput.addEventListener('input', () => {
+      clearTimeout(previewDebounce);
+      previewDebounce = setTimeout(() => {
+        const current = store.load();
+        const groupSize = Math.max(3, Math.min(8, parseInt(groupSizeInput.value) || 4));
+        // 모둠 크기 변경 → 커스텀 위치 초기화 (자동 재배치)
+        store.update({
+          layoutSettings: {
+            ...current.layoutSettings,
+            groupSize,
+            groupPositions: []
+          }
+        });
+        refreshPreview();
+      }, 300);
+    });
+
+    // 배치 초기화 버튼 (드래그 조정 되돌리기)
+    const btnGroupReset = document.getElementById('btn-group-reset');
+    if (btnGroupReset) {
+      btnGroupReset.addEventListener('click', () => {
+        const current = store.load();
+        store.update({
+          layoutSettings: { ...current.layoutSettings, groupPositions: [] }
+        });
+        refreshPreview();
+        showToast('모둠 배치가 초기화되었습니다.', 'info');
+      });
+    }
+  }
+
+  // === 모둠원 중복 방지 ===
+  function updateGroupHistorySection() {
+    const d = store.load();
+    const section = document.getElementById('group-history-section');
+    if (section) {
+      section.style.display = d.layoutType === 'group' ? 'block' : 'none';
+    }
+  }
+
+  const groupExclusionCheckbox = document.getElementById('use-group-exclusion');
+  const groupExcludeCountSelect = document.getElementById('group-exclude-count');
+  const groupHistoryInfo = document.getElementById('group-history-info');
+  const clearGroupHistoryBtn = document.getElementById('btn-clear-group-history');
+
+  if (groupExclusionCheckbox) {
+    groupExclusionCheckbox.checked = data.useGroupExclusion !== false;
+    groupExcludeCountSelect.value = data.groupExcludeCount || 1;
+
+    function updateGroupHistoryInfo() {
+      const d = store.load();
+      const count = (d.groupHistory || []).length;
+      groupHistoryInfo.textContent = `저장된 기록: ${count}건`;
+    }
+    updateGroupHistoryInfo();
+
+    groupExclusionCheckbox.addEventListener('change', () => {
+      store.update({ useGroupExclusion: groupExclusionCheckbox.checked });
+    });
+    groupExcludeCountSelect.addEventListener('change', () => {
+      store.update({ groupExcludeCount: parseInt(groupExcludeCountSelect.value) });
+    });
+    clearGroupHistoryBtn.addEventListener('click', () => {
+      store.update({ groupHistory: [] });
+      updateGroupHistoryInfo();
+      showToast('모둠 기록이 초기화되었습니다.', 'info');
+    });
+  }
 
   // 배치 저장
   document.getElementById('btn-save-layout').addEventListener('click', () => {
@@ -298,26 +392,34 @@ export function initTeacherScreen() {
     }
 
     const totalSeats = getTotalSeats(current);
+    if (totalSeats === 0) {
+      if (current.layoutType === 'custom') {
+        showToast('자유배치 책상이 없습니다. 먼저 책상을 추가하세요.', 'warning');
+      } else {
+        showToast('좌석이 설정되지 않았습니다. 레이아웃을 확인하세요.', 'warning');
+      }
+      return;
+    }
     if (current.students.length > totalSeats) {
       showToast(`학생 수(${current.students.length}명)가 좌석 수(${totalSeats}석)보다 많습니다.`, 'error');
       return;
     }
 
     btn.disabled = true;
-    // 브라우저에 프레임 양보 → 버튼 비활성 상태가 렌더링된 후 계산 시작
+    btn.textContent = '배치 중...';
     await new Promise(r => setTimeout(r, 0));
 
-    const result = randomizeSeats(current);
+    const result = await randomizeSeats(current);
     btn.disabled = false;
+    btn.textContent = '미리 뽑기 테스트';
     if (result) {
-      // 미리보기 전용: store에 저장하지 않음 (학생 화면에 넘어가지 않음)
       currentPreviewAssignment = result;
+      // 자유배치: 결과 표시를 위해 seat-grid를 보이게
       if (current.layoutType === 'custom') {
         seatGrid.style.display = 'block';
       }
       renderSeatGrid(seatGrid, current, result, { fixedSeats: current.fixedSeats, animate: true, teacherView: isTeacherViewPreview });
 
-      // 결과 검증
       const violations = verifyAssignment(result, current);
       if (violations.length > 0) {
         showToast(`규칙 위반 ${violations.length}건: ${violations.join(' / ')}`, 'error', 5000);
@@ -340,7 +442,8 @@ export function initTeacherScreen() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `자리배치_설정_${new Date().toISOString().slice(0, 10)}.json`;
+    const className = store.getActiveClass();
+    a.download = `자리배치_설정_${className}_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('설정을 내보냈습니다.', 'success');
@@ -357,19 +460,25 @@ export function initTeacherScreen() {
         const parsed = JSON.parse(reader.result);
 
         if (parsed.type === 'seat-result') {
-          store.update({
-            students: parsed.students || [],
-            classSize: (parsed.students || []).length,
-            layoutType: parsed.layoutType || 'exam',
-            layoutSettings: parsed.layoutSettings || { columns: 6, rows: 5, customDesks: [] },
-            fixedSeats: parsed.fixedSeats || [],
-            separationRules: parsed.separationRules || [],
-            lastAssignment: parsed.assignment
-              ? { mapping: parsed.assignment, timestamp: parsed.timestamp || Date.now() }
-              : null
-          });
-          showToast('이전 배치 결과를 불러왔습니다.', 'success');
-          location.reload();
+          // importJSON으로 검증 경유 (seat-result도 동일한 검증 적용)
+          const importData = { ...parsed };
+          if (importData.assignment) {
+            importData.lastAssignment = { mapping: importData.assignment, timestamp: importData.timestamp || Date.now() };
+          }
+          delete importData.type;
+          delete importData.version;
+          delete importData.assignment;
+          delete importData.date;
+          if (store.importJSON(JSON.stringify(importData))) {
+            // lastAssignment는 importJSON이 null로 초기화하므로 별도 저장
+            if (parsed.assignment) {
+              store.update({ lastAssignment: { mapping: parsed.assignment, timestamp: parsed.timestamp || Date.now() } });
+            }
+            showToast('이전 배치 결과를 불러왔습니다.', 'success');
+            location.reload();
+          } else {
+            showToast('잘못된 결과 파일입니다.', 'error');
+          }
           return;
         }
 
@@ -426,6 +535,11 @@ export function initTeacherScreen() {
   });
 
   window.addEventListener('roster-updated', () => {
+    // 학생 수 변경 시 모둠 커스텀 위치 초기화
+    const d = store.load();
+    if (d.layoutType === 'group' && d.layoutSettings.groupPositions && d.layoutSettings.groupPositions.length > 0) {
+      store.update({ layoutSettings: { ...d.layoutSettings, groupPositions: [] } });
+    }
     refreshPreview();
     updateCustomStatus();
   });
@@ -435,4 +549,74 @@ export function initTeacherScreen() {
   if (data.layoutType === 'custom') {
     setTimeout(initCustomCanvas, 0);
   }
+}
+
+// === 반 관리 초기화 ===
+function initClassManager() {
+  const classSelect = document.getElementById('class-select');
+  const addBtn = document.getElementById('btn-add-class');
+  const renameBtn = document.getElementById('btn-rename-class');
+  const deleteBtn = document.getElementById('btn-delete-class');
+
+  function renderClassList() {
+    const classes = store.getClassList();
+    const active = store.getActiveClass();
+    classSelect.innerHTML = '';
+    classes.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === active) opt.selected = true;
+      classSelect.appendChild(opt);
+    });
+  }
+
+  renderClassList();
+
+  classSelect.addEventListener('change', () => {
+    store.switchClass(classSelect.value);
+    location.reload();
+  });
+
+  addBtn.addEventListener('click', async () => {
+    const classes = store.getClassList();
+    if (classes.length >= 15) {
+      showToast('최대 15개 반까지 만들 수 있습니다.', 'warning');
+      return;
+    }
+    const name = prompt('새 반 이름을 입력하세요:');
+    if (!name || name.trim().length === 0) return;
+    if (store.addClass(name.trim())) {
+      store.switchClass(name.trim());
+      location.reload();
+    } else {
+      showToast('이미 같은 이름의 반이 있습니다.', 'warning');
+    }
+  });
+
+  renameBtn.addEventListener('click', () => {
+    const current = store.getActiveClass();
+    const newName = prompt('새 이름을 입력하세요:', current);
+    if (!newName || newName.trim().length === 0) return;
+    if (store.renameClass(current, newName.trim())) {
+      renderClassList();
+      showToast(`'${newName.trim()}'(으)로 이름이 변경되었습니다.`, 'success');
+    } else {
+      showToast('이름 변경에 실패했습니다. 중복된 이름일 수 있습니다.', 'warning');
+    }
+  });
+
+  deleteBtn.addEventListener('click', async () => {
+    const classes = store.getClassList();
+    if (classes.length <= 1) {
+      showToast('마지막 반은 삭제할 수 없습니다.', 'warning');
+      return;
+    }
+    const current = store.getActiveClass();
+    const confirmed = await showConfirm(`'${current}' 반을 삭제하시겠습니까?\n모든 설정이 삭제됩니다.`);
+    if (!confirmed) return;
+    if (store.removeClass(current)) {
+      location.reload();
+    }
+  });
 }
