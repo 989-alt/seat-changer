@@ -472,7 +472,7 @@
   left: 0;
   right: 0;
   z-index: 20;
-  max-height: 180px;
+  max-height: 50vh;
   overflow-y: auto;
   background: var(--surface);
   border: none;

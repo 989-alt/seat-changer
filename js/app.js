@@ -4,6 +4,7 @@ import { initStudentScreen } from './screens/student-screen.js';
 
 let _teacherInited = false;
 let _studentInited = false;
+let _studentApi = null;
 
 function route() {
   const hash = location.hash.replace('#', '') || 'teacher';
@@ -22,8 +23,11 @@ function route() {
   } else {
     studentEl.style.display = 'block';
     if (!_studentInited) {
-      initStudentScreen();
+      _studentApi = initStudentScreen();
       _studentInited = true;
+    } else if (_studentApi && _studentApi.refresh) {
+      // 학생 화면 재진입 시 최신 교사 설정 반영
+      _studentApi.refresh();
     }
   }
 }

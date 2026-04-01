@@ -36,7 +36,7 @@ export const examLayout = {
       ? ''
       : '<div class="blackboard">칠  판</div>';
 
-    html += `<div class="seat-grid" style="grid-template-columns: repeat(${columns}, 1fr);">`;
+    html += `<div class="seat-grid" style="grid-template-columns: repeat(${columns}, auto);">`;
 
     let animIdx = 0;
     for (const pos of ordered) {

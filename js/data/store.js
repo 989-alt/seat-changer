@@ -188,7 +188,7 @@ export const store = {
         separationRules: Array.isArray(parsed.separationRules) ? parsed.separationRules.slice(0, 50) : [],
         lastAssignment: null,
         studentGenders: (typeof parsed.studentGenders === 'object' && parsed.studentGenders) ? parsed.studentGenders : {},
-        genderRule: ['none','same','mixed'].includes(parsed.genderRule) ? parsed.genderRule : 'none',
+        genderRule: ['none','same','mixed','mixedFirst'].includes(parsed.genderRule) ? parsed.genderRule : 'none',
         assignmentHistory: Array.isArray(parsed.assignmentHistory) ? parsed.assignmentHistory.slice(0, 10) : [],
         historyExcludeCount: [1,2,3].includes(parsed.historyExcludeCount) ? parsed.historyExcludeCount : 1,
         useHistoryExclusion: parsed.useHistoryExclusion !== false,

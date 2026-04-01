@@ -291,6 +291,7 @@
             <label><input type="radio" name="gender-rule" value="none" checked> 제한 없음</label>
             <label><input type="radio" name="gender-rule" value="same"> 동성끼리 앉기</label>
             <label><input type="radio" name="gender-rule" value="mixed"> 이성끼리 앉기</label>
+            <label><input type="radio" name="gender-rule" value="mixedFirst"> 이성 우선 (남으면 동성끼리)</label>
           </div>
           <p class="hint">짝대형: 짝꿍끼리 적용 / 기타: 가로·세로 인접 자리에 적용</p>
         </section>
@@ -414,9 +415,27 @@
           </svg>
           다시 뽑기
         </button>
+        <button id="btn-reveal-all" class="btn btn-outline" style="display:none">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          전체 공개
+        </button>
       </div>
 
       <div class="student-toolbar" style="display:none">
+        <button id="btn-swap-mode" class="btn btn-ghost btn-sm" title="두 학생 자리 바꾸기">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="17 1 21 5 17 9"/>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+            <polyline points="7 23 3 19 7 15"/>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+          바꾸기
+        </button>
         <button id="btn-save-result" class="btn btn-ghost btn-sm" title="결과 저장 (JSON)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">

@@ -54,9 +54,20 @@ export function initStudentScreen() {
   const resultImportFile = document.getElementById('result-import-file');
   const viewToggleBtn = document.getElementById('btn-toggle-view-student');
 
+  const revealAllBtn = document.getElementById('btn-reveal-all');
+  const swapModeBtn = document.getElementById('btn-swap-mode');
+
   // === 시선 전환 ===
   let isTeacherView = store.load().viewPerspective === 'teacher';
   let currentAssignment = null; // 현재 화면에 표시 중인 배치 결과
+
+  // === 이름 가리기 상태 ===
+  let namesHidden = false; // 현재 이름이 가려진 상태인지
+  let revealedSeats = new Set(); // 개별 공개된 좌석 인덱스
+
+  // === 자리 교환 상태 ===
+  let swapMode = false;
+  let swapFirstSeat = null;
 
   function updateToggleBtn() {
     viewToggleBtn.classList.toggle('active', isTeacherView);
@@ -78,6 +89,115 @@ export function initStudentScreen() {
       renderSeatGrid(container, d, assignment, { teacherView: isTeacherView });
     } else if (d.students.length > 0) {
       renderSeatGrid(container, d, createRosterOrder(d), { teacherView: isTeacherView });
+    }
+    applyPostRenderState();
+  }
+
+  // 렌더링 후 이름 가리기/스왑 상태 재적용
+  function applyPostRenderState() {
+    if (namesHidden) {
+      container.querySelectorAll('.seat.assigned').forEach(el => {
+        const seatIdx = parseInt(el.dataset.seat);
+        if (revealedSeats.has(seatIdx)) {
+          // 이미 공개된 좌석: hidden-name 없이 정상 표시
+        } else {
+          applyFlipCard(el);
+        }
+      });
+    }
+    attachSeatClickHandlers();
+  }
+
+  // 좌석에 카드 뒤집기 DOM 구조 적용
+  function applyFlipCard(el) {
+    if (el.classList.contains('hidden-name')) return; // 이미 적용됨
+    const name = el.querySelector('.seat-name')?.textContent || '';
+    const number = el.querySelector('.seat-number')?.textContent || '';
+    el.classList.add('hidden-name');
+
+    // seat-inner > seat-front(?) + seat-back(이름) 구조 삽입
+    const inner = document.createElement('div');
+    inner.className = 'seat-inner';
+    inner.innerHTML =
+      `<div class="seat-front">?</div>` +
+      `<div class="seat-back"><span class="seat-number">${number}</span><span class="seat-name">${name}</span></div>`;
+    el.appendChild(inner);
+  }
+
+  // 좌석의 카드 뒤집기 DOM 제거 (공개 시)
+  function removeFlipCard(el) {
+    el.classList.remove('hidden-name', 'flipped');
+    const inner = el.querySelector('.seat-inner');
+    if (inner) inner.remove();
+  }
+
+  // 좌석 클릭 핸들러 (이름 공개 + 스왑)
+  function attachSeatClickHandlers() {
+    container.querySelectorAll('.seat[data-seat]').forEach(el => {
+      el.addEventListener('click', () => {
+        const seatIdx = parseInt(el.dataset.seat);
+        const assignment = currentAssignment;
+        if (!assignment) return;
+
+        // 스왑 모드 처리: 첫 번째는 학생 있는 좌석, 두 번째는 빈 좌석도 가능
+        if (swapMode) {
+          if (swapFirstSeat === null && !assignment[seatIdx]) return; // 첫 선택은 학생 있는 자리만
+          handleSwapClick(seatIdx, el);
+          return;
+        }
+
+        // 이름 공개 처리: 클릭 시 뒤집기
+        if (namesHidden && el.classList.contains('hidden-name') && !el.classList.contains('flipped')) {
+          el.classList.add('flipped');
+          revealedSeats.add(seatIdx);
+
+          // 뒤집기 애니메이션 완료 후 DOM 정리
+          setTimeout(() => {
+            removeFlipCard(el);
+            // 모든 이름이 공개되었는지 확인
+            const hiddenCount = container.querySelectorAll('.seat.hidden-name:not(.flipped)').length;
+            if (hiddenCount === 0) {
+              namesHidden = false;
+              revealAllBtn.style.display = 'none';
+            }
+          }, 550);
+        }
+      });
+    });
+  }
+
+  // 스왑 클릭 처리
+  function handleSwapClick(seatIdx, el) {
+    if (swapFirstSeat === null) {
+      // 첫 번째 좌석 선택
+      swapFirstSeat = seatIdx;
+      el.classList.add('swap-selected');
+    } else if (swapFirstSeat === seatIdx) {
+      // 같은 좌석 다시 클릭 → 선택 해제
+      swapFirstSeat = null;
+      el.classList.remove('swap-selected');
+    } else {
+      // 두 번째 좌석 선택 → 교환 실행
+      const mapping = { ...currentAssignment };
+      const nameA = mapping[swapFirstSeat] || null;
+      const nameB = mapping[seatIdx] || null;
+
+      // 빈자리 이동: A 학생을 빈자리로 옮김 (또는 두 학생 교환)
+      if (nameA) mapping[seatIdx] = nameA; else delete mapping[seatIdx];
+      if (nameB) mapping[swapFirstSeat] = nameB; else delete mapping[swapFirstSeat];
+
+      const d = store.load();
+      store.update({ lastAssignment: { mapping, timestamp: Date.now() } });
+      currentAssignment = mapping;
+
+      // 재렌더링
+      renderSeatGrid(container, d, mapping, { teacherView: isTeacherView });
+      applyPostRenderState();
+
+      const labelA = nameA || '빈 자리';
+      const labelB = nameB || '빈 자리';
+      showToast(`${labelA} ↔ ${labelB} 자리를 바꿨습니다.`, 'success');
+      swapFirstSeat = null;
     }
   }
 
@@ -214,11 +334,37 @@ export function initStudentScreen() {
     store.update({ lastAssignment: { mapping: result, timestamp: Date.now() }, ...historyUpdate, ...groupHistoryUpdate });
     currentAssignment = result;
 
-    // 결과 애니메이션
-    renderSeatGrid(container, current, result, { animate: true, teacherView: isTeacherView });
+    // 이름 가리기 상태 초기화
+    namesHidden = true;
+    revealedSeats.clear();
+    swapMode = false;
+    swapFirstSeat = null;
+    swapModeBtn.classList.remove('active');
+
+    // 결과 렌더링 (애니메이션 없이) + 즉시 ? 카드 적용
+    renderSeatGrid(container, current, result, { animate: false, teacherView: isTeacherView });
+    container.querySelectorAll('.seat.assigned').forEach(el => {
+      applyFlipCard(el);
+    });
+    attachSeatClickHandlers();
+
+    // ? 카드 등장 애니메이션 (staggered pop)
+    const allCards = container.querySelectorAll('.seat.hidden-name');
+    allCards.forEach((el, i) => {
+      el.style.opacity = '0';
+      el.style.transform = 'scale(0.6)';
+      el.style.transition = 'none';
+      setTimeout(() => {
+        el.style.transition = 'opacity 0.3s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1)';
+        setTimeout(() => { el.style.transition = ''; el.style.transform = ''; }, 400);
+      }, i * 50);
+    });
 
     drawBtn.style.display = 'none';
     redrawBtn.style.display = 'inline-flex';
+    revealAllBtn.style.display = 'inline-flex';
     drawBtn.disabled = false;
     redrawBtn.disabled = false;
     drawBtn.classList.remove('loading');
@@ -244,6 +390,46 @@ export function initStudentScreen() {
 
   drawBtn.addEventListener('click', () => doDraw(false));
   redrawBtn.addEventListener('click', () => doDraw(true));
+
+  // === 전체 공개 ===
+  revealAllBtn.addEventListener('click', () => {
+    if (!namesHidden) return;
+    const hiddenSeats = container.querySelectorAll('.seat.hidden-name:not(.flipped)');
+    hiddenSeats.forEach((el, i) => {
+      setTimeout(() => {
+        el.classList.add('flipped');
+        const seatIdx = parseInt(el.dataset.seat);
+        revealedSeats.add(seatIdx);
+        setTimeout(() => removeFlipCard(el), 550);
+      }, i * 80);
+    });
+    setTimeout(() => {
+      namesHidden = false;
+      revealAllBtn.style.display = 'none';
+    }, hiddenSeats.length * 80 + 600);
+  });
+
+  // === 자리 교환 모드 ===
+  swapModeBtn.addEventListener('click', () => {
+    if (!currentAssignment) return;
+    swapMode = !swapMode;
+    swapFirstSeat = null;
+    swapModeBtn.classList.toggle('active', swapMode);
+
+    // 스왑 모드 활성화 시 이름이 가려져 있으면 전체 공개
+    if (swapMode && namesHidden) {
+      revealAllBtn.click();
+    }
+
+    // 기존 swap-selected 제거
+    container.querySelectorAll('.seat.swap-selected').forEach(el => {
+      el.classList.remove('swap-selected');
+    });
+
+    if (swapMode) {
+      showToast('교환할 첫 번째 학생의 자리를 클릭하세요.', 'info');
+    }
+  });
 
   // === 결과 저장 (JSON) ===
   saveResultBtn.addEventListener('click', () => {
@@ -341,7 +527,14 @@ export function initStudentScreen() {
 
         // 화면 갱신
         currentAssignment = imported.assignment;
+        namesHidden = false;
+        revealedSeats.clear();
+        swapMode = false;
+        swapFirstSeat = null;
+        swapModeBtn.classList.remove('active');
+        revealAllBtn.style.display = 'none';
         renderCurrent(true);
+        attachSeatClickHandlers();
         drawBtn.style.display = 'none';
         redrawBtn.style.display = 'inline-flex';
         showResultToolbar(true);
@@ -406,9 +599,29 @@ export function initStudentScreen() {
   });
 
   // === 전체 화면 ===
+  const toastContainer = document.getElementById('toast-container');
+  const confirmModal = document.getElementById('confirm-modal');
+  const historyModalEl = document.getElementById('history-modal');
+
+  function moveOverlaysIntoScreen() {
+    const screen = document.getElementById('student-screen');
+    // 전체화면에서 모달/토스트가 보이도록 student-screen 안으로 이동
+    if (toastContainer) screen.appendChild(toastContainer);
+    if (confirmModal) screen.appendChild(confirmModal);
+    if (historyModalEl) screen.appendChild(historyModalEl);
+  }
+
+  function moveOverlaysBack() {
+    // 원래 body 레벨로 복원
+    if (toastContainer) document.body.insertBefore(toastContainer, document.body.firstChild);
+    if (confirmModal) document.body.insertBefore(confirmModal, toastContainer ? toastContainer.nextSibling : document.body.firstChild);
+    if (historyModalEl) document.body.appendChild(historyModalEl);
+  }
+
   fullscreenBtn.addEventListener('click', () => {
     const screen = document.getElementById('student-screen');
     if (!document.fullscreenElement) {
+      moveOverlaysIntoScreen();
       screen.requestFullscreen().catch(() => {
         // Fallback: CSS-only fullscreen
         screen.classList.toggle('fullscreen');
@@ -425,6 +638,7 @@ export function initStudentScreen() {
     } else {
       fullscreenBtn.textContent = '⛶ 전체 화면';
       screen.classList.remove('fullscreen');
+      moveOverlaysBack();
     }
   });
 
@@ -488,7 +702,14 @@ export function initStudentScreen() {
             if (!hist[idx] || !hist[idx].mapping) return;
             store.update({ lastAssignment: { mapping: hist[idx].mapping, timestamp: hist[idx].timestamp } });
             currentAssignment = hist[idx].mapping;
+            namesHidden = false;
+            revealedSeats.clear();
+            swapMode = false;
+            swapFirstSeat = null;
+            swapModeBtn.classList.remove('active');
+            revealAllBtn.style.display = 'none';
             renderSeatGrid(container, d, hist[idx].mapping, { animate: true, teacherView: isTeacherView });
+            attachSeatClickHandlers();
             drawBtn.style.display = 'none';
             redrawBtn.style.display = 'inline-flex';
             showResultToolbar(true);
@@ -520,18 +741,50 @@ export function initStudentScreen() {
     });
   }
 
-  // 탭 간 동기화
-  store.initSync(() => {
+  // 설정 변경 감지용 스냅샷
+  let _lastSnapshot = '';
+  function settingsSnapshot(d) {
+    return JSON.stringify([d.students, d.layoutType, d.layoutSettings, d.genderRule, d.fixedSeats, d.separationRules]);
+  }
+  _lastSnapshot = settingsSnapshot(store.load());
+
+  // 화면 진입 시 최신 데이터로 갱신
+  function refreshFromStore() {
     const d = store.load();
     updateEmptyState(d);
     if (d.students.length === 0) return;
 
-    const rosterOrder = createRosterOrder(d);
-    renderSeatGrid(container, d, rosterOrder, { teacherView: isTeacherView });
-    drawBtn.style.display = 'inline-flex';
-    redrawBtn.style.display = 'none';
-    showResultToolbar(false);
-  });
+    const snap = settingsSnapshot(d);
+    const settingsChanged = snap !== _lastSnapshot;
+    _lastSnapshot = snap;
+
+    if (settingsChanged) {
+      // 교사 설정이 바뀌었으면 배치 결과 초기화
+      currentAssignment = null;
+      namesHidden = false;
+      revealedSeats.clear();
+      swapMode = false;
+      swapFirstSeat = null;
+      swapModeBtn.classList.remove('active');
+      revealAllBtn.style.display = 'none';
+
+      store.update({ lastAssignment: null });
+      const rosterOrder = createRosterOrder(d);
+      renderSeatGrid(container, d, rosterOrder, { teacherView: isTeacherView });
+      drawBtn.style.display = 'inline-flex';
+      redrawBtn.style.display = 'none';
+      showResultToolbar(false);
+    } else {
+      // 설정이 동일하면 현재 상태 유지, 시선만 반영하여 재렌더
+      reRenderCurrentView();
+    }
+  }
+
+  // 탭 간 동기화
+  store.initSync(refreshFromStore);
+
+  // 화면 전환 시 갱신 함수 반환
+  return { refresh: refreshFromStore };
 }
 
 /**

@@ -232,6 +232,74 @@ function precomputeGenderSeats(students, availableSeats, posMap, data) {
     return result;
   }
 
+  if (genderRule === 'mixedFirst') {
+    // 이성 우선: 소수 성별 전원 + 같은 수의 다수 성별을 체커보드 배치,
+    // 나머지 다수 성별은 전체 좌석 사용 (동성 인접 허용)
+    const evenSeats = [];
+    const oddSeats = [];
+
+    for (const seatIdx of availableSeats) {
+      const pos = posMap[seatIdx];
+      if (!pos) continue;
+
+      if (data.layoutType === 'pair') {
+        if (pos.col % 2 === 0) evenSeats.push(seatIdx);
+        else oddSeats.push(seatIdx);
+      } else {
+        if ((pos.row + pos.col) % 2 === 0) evenSeats.push(seatIdx);
+        else oddSeats.push(seatIdx);
+      }
+    }
+
+    let maleCount = 0, femaleCount = 0;
+    students.forEach(s => {
+      if (genders[s] === 'M') maleCount++;
+      else if (genders[s] === 'F') femaleCount++;
+    });
+
+    const minorGender = maleCount <= femaleCount ? 'M' : 'F';
+    const majorGender = minorGender === 'M' ? 'F' : 'M';
+    const minorCount = Math.min(maleCount, femaleCount);
+
+    // 소수 성별 → 한 색, 다수 성별 중 minorCount명 → 반대 색
+    const fit1 = (minorCount <= evenSeats.length);
+    const fit2 = (minorCount <= oddSeats.length);
+
+    let minorSeats, pairedMajorSeats;
+    if (fit1 && fit2) {
+      if (evenSeats.length >= oddSeats.length) {
+        minorSeats = oddSeats; pairedMajorSeats = evenSeats;
+      } else {
+        minorSeats = evenSeats; pairedMajorSeats = oddSeats;
+      }
+    } else if (fit1) {
+      minorSeats = evenSeats; pairedMajorSeats = oddSeats;
+    } else if (fit2) {
+      minorSeats = oddSeats; pairedMajorSeats = evenSeats;
+    } else {
+      minorSeats = allSeats; pairedMajorSeats = allSeats;
+    }
+
+    let majorPairedCount = 0;
+    students.forEach(s => {
+      const g = genders[s];
+      if (g === minorGender) {
+        result[s] = minorSeats;
+      } else if (g === majorGender) {
+        if (majorPairedCount < minorCount) {
+          result[s] = pairedMajorSeats;
+          majorPairedCount++;
+        } else {
+          result[s] = allSeats; // 남은 다수 성별: 전체 좌석
+        }
+      } else {
+        result[s] = allSeats;
+      }
+    });
+
+    return result;
+  }
+
   if (genderRule === 'same') {
     // 동성 인접: 같은 성별끼리 모이도록 행 단위로 완전 분리
     // 핵심: 남/녀 좌석 풀이 겹치면 경계에서 이성 인접 → 백트래킹 폭발
@@ -446,7 +514,7 @@ function checkConstraints(student, seatIdx, assignment, posMap, rules, layout, r
  */
 function checkGenderConstraintFast(student, seatIdx, assignment, adjacencyMap, data) {
   const genderRule = data.genderRule || 'none';
-  if (genderRule === 'none') return true;
+  if (genderRule === 'none' || genderRule === 'mixedFirst') return true;
 
   const genders = data.studentGenders || {};
   const myGender = genders[student];

@@ -100,19 +100,27 @@ export const groupLayout = {
       positions.push(saved.find(p => p.groupIndex === g) || auto[g]);
     }
 
-    // 캔버스 크기 계산
-    const seatW = 64, seatH = 48, seatGap = 4, pad = 12;
+    // 캔버스 크기 계산 (교사: 64x48, 학생: 비례 확대)
+    const baseSeatW = 64, baseSeatH = 48, baseGap = 4, basePad = 12;
+    // 학생 화면(container가 student-grid 내부)이면 좌석이 CSS로 더 크므로 비례 스케일
+    const isStudentView = container.classList.contains('student-grid') || container.closest('.student-grid');
+    const scale = isStudentView ? 1.55 : 1;
+    const seatW = Math.round(baseSeatW * scale);
+    const seatH = Math.round(baseSeatH * scale);
+    const seatGap = Math.round(baseGap * scale);
+    const pad = Math.round(basePad * scale);
+
     const blockW = clusterCols * (seatW + seatGap) + pad;
-    const blockH = getClusterDims(groupSize).rows * (seatH + seatGap) + 28;
-    let maxX = 300, maxY = 200;
+    const blockH = getClusterDims(groupSize).rows * (seatH + seatGap) + Math.round(28 * scale);
+    let maxX = Math.round(300 * scale), maxY = Math.round(200 * scale);
     positions.forEach(gp => {
       if (!gp) return;
-      maxX = Math.max(maxX, gp.x + blockW + 10);
-      maxY = Math.max(maxY, gp.y + blockH + 10);
+      maxX = Math.max(maxX, Math.round(gp.x * scale) + blockW + 10);
+      maxY = Math.max(maxY, Math.round(gp.y * scale) + blockH + 10);
     });
 
     let html = tv ? '' : '<div class="blackboard">칠  판</div>';
-    html += '<div class="group-layout-canvas" style="position:relative; min-height:' + maxY + 'px; width:100%;">';
+    html += '<div class="group-layout-canvas" style="position:relative; min-height:' + maxY + 'px; width:' + maxX + 'px; margin:0 auto;">';
 
     let animIdx = 0;
     const order = tv ? [...positions].reverse() : positions;
@@ -121,15 +129,21 @@ export const groupLayout = {
       if (!gp) continue;
       const g = gp.groupIndex;
       const groupStart = g * groupSize;
-      const displayX = tv ? (maxX - gp.x - blockW) : gp.x;
-      const displayY = tv ? (maxY - gp.y - blockH) : gp.y;
+      const scaledX = Math.round(gp.x * scale);
+      const scaledY = Math.round(gp.y * scale);
+      const displayX = tv ? (maxX - scaledX - blockW) : scaledX;
+      const displayY = tv ? (maxY - scaledY - blockH) : scaledY;
 
       html += '<div class="group-cluster" data-group-index="' + g + '" style="position:absolute; left:' + displayX + 'px; top:' + displayY + 'px;">';
       html += '<div class="group-label">' + (g + 1) + '모둠</div>';
-      html += '<div class="group-cluster-seats" style="display:grid; grid-template-columns:repeat(' + clusterCols + ',1fr); gap:' + seatGap + 'px;">';
+      html += '<div class="group-cluster-seats" style="display:grid; grid-template-columns:repeat(' + clusterCols + ',' + seatW + 'px); gap:' + seatGap + 'px;">';
 
-      for (let s = 0; s < groupSize; s++) {
-        const idx = groupStart + s;
+      // 선생님 시선: 클러스터 내 좌석을 역순 렌더링 (좌우+상하 반전)
+      const seatIndices = [];
+      for (let s = 0; s < groupSize; s++) seatIndices.push(groupStart + s);
+      if (tv) seatIndices.reverse();
+
+      for (const idx of seatIndices) {
         if (idx >= totalSeats) {
           html += '<div class="seat empty" style="visibility:hidden"></div>';
           continue;
