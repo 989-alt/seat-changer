@@ -18,8 +18,11 @@ function createDefaultData() {
       rows: 5,
       customDesks: [],
       groupSize: 4,
+      groupCount: 0,
+      groupSizes: [],
       groupLayoutMode: 'auto',
-      groupDesks: []
+      groupDesks: [],
+      disabledSeats: []  // 사용자가 X로 삭제한 좌석 인덱스들
     },
     fixedSeats: [],
     separationRules: [],
@@ -65,20 +68,30 @@ function validateSeparationRule(rule, students) {
 }
 
 function getTotalSeats(data) {
+  const disabled = (data.layoutSettings.disabledSeats || []).length;
+  let raw;
   if (data.layoutType === 'custom') {
-    return data.layoutSettings.customDesks.length;
-  }
-  if (data.layoutType === 'group') {
-    if (data.layoutSettings.groupPositions && data.layoutSettings.groupPositions.length > 0) {
-      const groupSize = data.layoutSettings.groupSize || 4;
-      return data.layoutSettings.groupPositions.length * groupSize;
+    raw = data.layoutSettings.customDesks.length;
+  } else if (data.layoutType === 'group') {
+    const fallback = Math.max(2, Math.min(8, data.layoutSettings.groupSize || 4));
+    if (Array.isArray(data.layoutSettings.groupSizes) && data.layoutSettings.groupSizes.length > 0) {
+      raw = data.layoutSettings.groupSizes
+        .map(n => Math.max(1, Math.min(8, parseInt(n) || fallback)))
+        .reduce((a, b) => a + b, 0);
+    } else if (data.layoutSettings.groupCount && data.layoutSettings.groupCount > 0) {
+      raw = data.layoutSettings.groupCount * fallback;
+    } else if (data.layoutSettings.groupPositions && data.layoutSettings.groupPositions.length > 0) {
+      raw = data.layoutSettings.groupPositions.length * fallback;
+    } else {
+      const cols = data.layoutSettings.columns || 6;
+      const rows = data.layoutSettings.rows || 5;
+      raw = cols * rows;
     }
-    const groupSize = data.layoutSettings.groupSize || 4;
-    const cols = data.layoutSettings.columns || 6;
-    const rows = data.layoutSettings.rows || 5;
-    return cols * rows;
+  } else {
+    raw = data.layoutSettings.columns * data.layoutSettings.rows;
   }
-  return data.layoutSettings.columns * data.layoutSettings.rows;
+  // 사용자가 X로 비활성화한 좌석 제외 (자유배치는 책상 자체가 배열에서 빠지므로 별도 차감 불필요)
+  return data.layoutType === 'custom' ? raw : Math.max(0, raw - disabled);
 }
 
 // === data/store.js ===
@@ -262,10 +275,21 @@ const store = {
           columns: Math.max(1, Math.min(12, parseInt(parsed.layoutSettings?.columns) || defaults.layoutSettings.columns)),
           rows: Math.max(1, Math.min(12, parseInt(parsed.layoutSettings?.rows) || defaults.layoutSettings.rows)),
           customDesks: Array.isArray(parsed.layoutSettings?.customDesks) ? parsed.layoutSettings.customDesks.slice(0, 200) : [],
-          groupSize: Math.max(3, Math.min(8, parseInt(parsed.layoutSettings?.groupSize) || defaults.layoutSettings.groupSize)),
+          groupSize: Math.max(2, Math.min(8, parseInt(parsed.layoutSettings?.groupSize) || defaults.layoutSettings.groupSize)),
+          groupCount: Math.max(0, Math.min(20, parseInt(parsed.layoutSettings?.groupCount) || 0)),
+          groupSizes: Array.isArray(parsed.layoutSettings?.groupSizes)
+            ? parsed.layoutSettings.groupSizes
+                .map(n => Math.max(1, Math.min(8, parseInt(n) || defaults.layoutSettings.groupSize)))
+                .slice(0, 20)
+            : [],
           groupLayoutMode: parsed.layoutSettings?.groupLayoutMode || 'auto',
           groupDesks: Array.isArray(parsed.layoutSettings?.groupDesks) ? parsed.layoutSettings.groupDesks.slice(0, 200) : [],
-          groupPositions: Array.isArray(parsed.layoutSettings?.groupPositions) ? parsed.layoutSettings.groupPositions.slice(0, 50) : undefined
+          groupPositions: Array.isArray(parsed.layoutSettings?.groupPositions) ? parsed.layoutSettings.groupPositions.slice(0, 50) : undefined,
+          disabledSeats: Array.isArray(parsed.layoutSettings?.disabledSeats)
+            ? parsed.layoutSettings.disabledSeats
+                .filter(n => Number.isInteger(n) && n >= 0 && n < 1000)
+                .slice(0, 200)
+            : []
         },
         fixedSeats: Array.isArray(parsed.fixedSeats) ? parsed.fixedSeats.slice(0, 100) : [],
         separationRules: Array.isArray(parsed.separationRules) ? parsed.separationRules.slice(0, 50) : [],
@@ -723,10 +747,18 @@ function decodeUTF16LE(bytes) {
 
 /**
  * Manhattan distance (가로·세로 칸 수 합)
- * 대각선은 2칸으로 계산
+ * 대각선은 2칸으로 계산 — 가로/세로 분리만 강제할 때 사용
  */
 function manhattanDistance(pos1, pos2) {
   return Math.abs(pos1.row - pos2.row) + Math.abs(pos1.col - pos2.col);
+}
+
+/**
+ * Chebyshev distance (king's move, 가로·세로·대각선 동일)
+ * 인접 8방향 모두 거리 1 — 분리 규칙 기본 거리
+ */
+function chebyshevDistance(pos1, pos2) {
+  return Math.max(Math.abs(pos1.row - pos2.row), Math.abs(pos1.col - pos2.col));
 }
 
 function escapeHTML(str) {
@@ -753,8 +785,9 @@ const examLayout = {
     return settings.columns * settings.rows;
   },
 
+  // 가로·세로·대각선 모두 동일하게 1칸 (king's move)
   distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    return chebyshevDistance(pos1, pos2);
   },
 
   render(container, settings, assignment, options = {}) {
@@ -774,8 +807,13 @@ const examLayout = {
 
     html += `<div class="seat-grid" style="grid-template-columns: repeat(${columns}, auto);">`;
 
+    const disabled = new Set(settings.disabledSeats || []);
     let animIdx = 0;
     for (const pos of ordered) {
+      if (disabled.has(pos.index)) {
+        html += `<div class="seat disabled" data-seat="${pos.index}" aria-hidden="true"></div>`;
+        continue;
+      }
       const name = assignment ? assignment[pos.index] : null;
       const cls = name ? 'seat assigned' : 'seat empty';
       const extraCls = options.highlightSeat === pos.index ? ' highlight' : '';
@@ -807,7 +845,8 @@ const pairLayout = {
     const positions = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < columns; c++) {
-        positions.push({ index: r * columns + c, row: r, col: c });
+        // pairCol: 짝꿍 묶음 단위 가로 인덱스 (책상 그룹 시각화 반영)
+        positions.push({ index: r * columns + c, row: r, col: c, pairCol: Math.floor(c / 2) });
       }
     }
     return positions;
@@ -817,8 +856,14 @@ const pairLayout = {
     return settings.columns * settings.rows;
   },
 
+  // 짝꿍 두 좌석은 시각적으로 한 책상에 붙어 앉음 → 거리 1.
+  // 다른 짝 그룹과는 그룹 단위 chebyshev에 +1 (그룹 사이의 시각적 갭 반영).
   distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    const samePair = pos1.row === pos2.row && pos1.pairCol === pos2.pairCol;
+    if (samePair) return 1;
+    const dr = Math.abs(pos1.row - pos2.row);
+    const dpc = Math.abs((pos1.pairCol ?? Math.floor(pos1.col / 2)) - (pos2.pairCol ?? Math.floor(pos2.col / 2)));
+    return Math.max(dr, dpc) + 1;
   },
 
   render(container, settings, assignment, options = {}) {
@@ -833,6 +878,7 @@ const pairLayout = {
     const rowOrder = tv ? Array.from({length: rows}, (_, i) => rows - 1 - i) : Array.from({length: rows}, (_, i) => i);
     const pcOrder = tv ? Array.from({length: pairCols}, (_, i) => pairCols - 1 - i) : Array.from({length: pairCols}, (_, i) => i);
 
+    const disabled = new Set(settings.disabledSeats || []);
     let animIdx = 0;
     for (const r of rowOrder) {
       for (const pc of pcOrder) {
@@ -842,6 +888,10 @@ const pairLayout = {
           const c = pc * 2 + i;
           if (c >= columns) continue;
           const idx = r * columns + c;
+          if (disabled.has(idx)) {
+            html += `<div class="seat disabled" data-seat="${idx}" aria-hidden="true"></div>`;
+            continue;
+          }
           const name = assignment ? assignment[idx] : null;
           const cls = name ? 'seat assigned' : 'seat empty';
           const extraCls = options.highlightSeat === idx ? ' highlight' : '';
@@ -877,18 +927,20 @@ const ushapeLayout = {
     let idx = 0;
 
     // 윗줄 (칠판쪽) - row 0
+    // arcPos: U자 경로 위치 — 왼쪽 줄 가장 아래(rows)부터 시작해서 위로 올라가
+    // 윗줄 좌→우, 다시 오른쪽 줄 위→아래까지 1차원 좌표.
     for (let c = 0; c < columns; c++) {
-      positions.push({ index: idx++, row: 0, col: c });
+      positions.push({ index: idx++, row: 0, col: c, arcPos: rows + c });
     }
 
-    // 왼쪽 줄 - col 0, row 1~rows
+    // 왼쪽 줄 - col 0, row 1~rows (위→아래 순으로 idx 증가, arcPos는 아래일수록 작음)
     for (let r = 1; r <= rows; r++) {
-      positions.push({ index: idx++, row: r, col: 0 });
+      positions.push({ index: idx++, row: r, col: 0, arcPos: rows - r });
     }
 
     // 오른쪽 줄 - col columns-1, row 1~rows
     for (let r = 1; r <= rows; r++) {
-      positions.push({ index: idx++, row: r, col: columns - 1 });
+      positions.push({ index: idx++, row: r, col: columns - 1, arcPos: rows + columns - 1 + r });
     }
 
     return positions;
@@ -899,8 +951,13 @@ const ushapeLayout = {
     return columns + rows * 2;
   },
 
+  // U자 경로상의 호 거리. 양쪽 끝 좌석은 호 길이만큼 떨어진 것으로 계산하여
+  // 시각적으로 멀리 있는 학생을 가깝다고 오판하지 않음.
   distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    if (pos1.arcPos != null && pos2.arcPos != null) {
+      return Math.abs(pos1.arcPos - pos2.arcPos);
+    }
+    return chebyshevDistance(pos1, pos2);
   },
 
   render(container, settings, assignment, options = {}) {
@@ -912,8 +969,12 @@ const ushapeLayout = {
     const leftSeats = positions.filter(p => p.row > 0 && p.col === 0);
     const rightSeats = positions.filter(p => p.row > 0 && p.col === columns - 1);
 
+    const disabled = new Set(settings.disabledSeats || []);
     let animIdx = 0;
     function renderSeat(pos) {
+      if (disabled.has(pos.index)) {
+        return `<div class="seat disabled" data-seat="${pos.index}" aria-hidden="true"></div>`;
+      }
       const name = assignment ? assignment[pos.index] : null;
       const cls = name ? 'seat assigned' : 'seat empty';
       const extraCls = options.highlightSeat === pos.index ? ' highlight' : '';
@@ -976,6 +1037,9 @@ const DESK_W = 60;
 const DESK_H = 40;
 const GRID_SIZE = 20;
 const MAX_HISTORY = 50;
+// 분리 규칙 거리 환산: 책상 폭 + 그리드 = 책상 1개 간격(픽셀)을 "1칸"으로 계산
+const CELL_PX_W = DESK_W + GRID_SIZE; // 80
+const CELL_PX_H = DESK_H + GRID_SIZE; // 60
 
 const customLayout = {
   _canvas: null,
@@ -992,11 +1056,12 @@ const customLayout = {
   _canvasH: 400,
   _resizeBound: null,
 
-  init(canvas, desks, onUpdate) {
+  init(canvas, desks, onUpdate, onSeatPick) {
     this._canvas = canvas;
     this._ctx = canvas.getContext('2d');
     this._desks = desks.map((d, i) => ({ ...d, id: d.id ?? i }));
     this._onUpdate = onUpdate;
+    this._onSeatPick = onSeatPick || null;
     this._selected = null;
     this._history = [];
     this._redoStack = [];
@@ -1004,6 +1069,26 @@ const customLayout = {
     this._fitCanvas();
     this._pushHistory();
     this._draw();
+
+    // 패널 layout이 안정화된 다음 프레임에 재측정 (init 시점에 wrap 폭이 0/작은 경우 보정)
+    requestAnimationFrame(() => {
+      if (this._canvas.clientWidth && this._canvas.clientWidth !== this._canvasW) {
+        this._fitCanvas();
+        this._draw();
+      }
+    });
+
+    // 패널 리사이즈/탭 전환 시 캔버스 폭 동기화 (영구 보정)
+    if (this._wrapResizeObserver) this._wrapResizeObserver.disconnect();
+    if (typeof ResizeObserver !== 'undefined' && this._canvas.parentNode) {
+      this._wrapResizeObserver = new ResizeObserver(() => {
+        if (this._canvas.clientWidth && this._canvas.clientWidth !== this._canvasW) {
+          this._fitCanvas();
+          this._draw();
+        }
+      });
+      this._wrapResizeObserver.observe(this._canvas.parentNode);
+    }
   },
 
   // --- Snap to grid ---
@@ -1012,12 +1097,14 @@ const customLayout = {
   },
 
   // --- Fit canvas to container (no ResizeObserver) ---
+  // 캔버스를 충분히 크게 만들어 책상을 자유롭게 배치 가능.
+  // 부모(#custom-editor)가 overflow:auto이므로 캔버스가 패널보다 크면 자동 스크롤.
   _fitCanvas() {
     const canvas = this._canvas;
-    // Read CSS-laid-out width (canvas has width:100% in CSS)
     const w = canvas.clientWidth || 560;
     const dpr = window.devicePixelRatio || 1;
-    const h = Math.max(300, Math.min(500, Math.floor(w * 0.65)));
+    // 너비의 1.1배 또는 최소 760px — 책상 6~8행 충분히 들어가는 크기
+    const h = Math.max(760, Math.floor(w * 1.1));
 
     this._canvasW = w;
     this._canvasH = h;
@@ -1145,13 +1232,14 @@ const customLayout = {
 
   getSeatPositions(settings) {
     const desks = settings.customDesks || [];
-    // 그리드 스냅 단위(GRID_SIZE=20)로 정규화하여
-    // 인접 판단이 정확하도록 함 (픽셀 좌표 직접 나누기 → 충돌 문제 해결)
-    const unit = GRID_SIZE || 20;
+    // 픽셀 좌표를 그대로 보존하면서, 격자가 필요한 알고리즘(성별 체커보드 등)을 위해
+    // 양자화된 row/col도 함께 제공
     return desks.map((d, i) => ({
       index: i,
-      row: Math.round(d.y / (DESK_H + unit)),
-      col: Math.round(d.x / (DESK_W + unit))
+      row: Math.round(d.y / CELL_PX_H),
+      col: Math.round(d.x / CELL_PX_W),
+      px: d.x,
+      py: d.y
     }));
   },
 
@@ -1159,8 +1247,16 @@ const customLayout = {
     return (settings.customDesks || []).length;
   },
 
+  // 책상의 실제 픽셀 좌표로 chebyshev 거리 계산.
+  // 1칸 = "책상 한 개 + 그리드 갭" 만큼 떨어진 거리.
+  // 사선·자유 배치에서도 시각적 거리에 정확히 비례.
   distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    if (pos1.px != null && pos2.px != null) {
+      const dx = Math.abs(pos1.px - pos2.px) / CELL_PX_W;
+      const dy = Math.abs(pos1.py - pos2.py) / CELL_PX_H;
+      return Math.round(Math.max(dx, dy));
+    }
+    return Math.max(Math.abs(pos1.row - pos2.row), Math.abs(pos1.col - pos2.col));
   },
 
   // --- Render for preview/student (normalized coordinates) ---
@@ -1386,10 +1482,17 @@ const customLayout = {
         this._draw();
         this._notify();
       } else {
-        // Click without drag = select
-        this._selected = this._selected === idx ? null : idx;
-        this._draw();
-        this._updateToolbarState();
+        // Click without drag — 고정자리 모드면 픽업, 아니면 선택 토글
+        let handledByPick = false;
+        if (typeof this._onSeatPick === 'function') {
+          // seatIndex는 desks 배열의 인덱스
+          handledByPick = this._onSeatPick(idx) === true;
+        }
+        if (!handledByPick) {
+          this._selected = this._selected === idx ? null : idx;
+          this._draw();
+          this._updateToolbarState();
+        }
       }
     }
   },
@@ -1538,20 +1641,54 @@ const customLayout = {
 // === layouts/group-layout.js ===
 // 모둠대형: N명씩 클러스터 배치 (자동 배치 + 드래그 미세조정)
 
+// 분리 규칙 거리 환산용 (좌석 1개 = 64x48 + 4 갭)
+const SEAT_PX_W = 68;
+const SEAT_PX_H = 52;
+
 function getClusterDims(groupSize) {
   if (groupSize <= 4) return { cols: 2, rows: Math.ceil(groupSize / 2) };
   if (groupSize <= 6) return { cols: 3, rows: Math.ceil(groupSize / 3) };
   return { cols: 4, rows: Math.ceil(groupSize / 4) };
 }
 
-// 자동 배치 좌표 계산
-function calcAutoPositions(groupCount, groupSize) {
-  const { cols: cCols, rows: cRows } = getClusterDims(groupSize);
+// settings.groupSizes (배열)가 있으면 사용, 없으면 groupCount/groupSize에서 만든다.
+function getGroupSizes(settings) {
+  const fallbackSize = Math.max(2, Math.min(8, settings.groupSize || 4));
+  if (Array.isArray(settings.groupSizes) && settings.groupSizes.length > 0) {
+    return settings.groupSizes
+      .map(n => Math.max(1, Math.min(8, parseInt(n) || fallbackSize)))
+      .slice(0, 20);
+  }
+  // groupCount가 명시되었으면 해당 수만큼 균등
+  if (settings.groupCount && settings.groupCount > 0) {
+    const c = Math.max(1, Math.min(20, parseInt(settings.groupCount)));
+    return Array.from({ length: c }, () => fallbackSize);
+  }
+  // 마지막 폴백: 기존처럼 cols*rows ÷ groupSize
+  const cols = settings.columns || 6;
+  const rows = settings.rows || 5;
+  const total = cols * rows;
+  const count = Math.ceil(total / fallbackSize);
+  return Array.from({ length: count }, () => fallbackSize);
+}
+
+// 모둠 시작 좌석 인덱스 (가변 크기 모둠 배열 누적합)
+function getGroupStartIndex(groupIndex, sizes) {
+  let s = 0;
+  for (let i = 0; i < groupIndex; i++) s += sizes[i] || 0;
+  return s;
+}
+
+// 자동 배치 좌표 계산 (가장 큰 모둠 크기 기준 블록 폭/높이로 균일 그리드)
+function calcAutoPositions(sizes) {
+  const maxSize = sizes.reduce((a, b) => Math.max(a, b), 1);
+  const { cols: cCols, rows: cRows } = getClusterDims(maxSize);
   const seatW = 64, seatH = 48, seatGap = 4;
   const blockW = cCols * (seatW + seatGap) + 12;
   const blockH = cRows * (seatH + seatGap) + 24;
   const gap = 24;
 
+  const groupCount = sizes.length;
   const gridCols = Math.ceil(Math.sqrt(groupCount));
   const positions = [];
   for (let g = 0; g < groupCount; g++) {
@@ -1566,80 +1703,103 @@ function calcAutoPositions(groupCount, groupSize) {
 
 const groupLayout = {
   getSeatPositions(settings) {
-    const groupSize = this.getGroupSize(settings);
-    const totalSeats = this.getSeatCount(settings);
-    const groupCount = Math.ceil(totalSeats / groupSize);
-    const { cols: cCols, rows: cRows } = getClusterDims(groupSize);
+    const sizes = getGroupSizes(settings);
+    const totalSeats = sizes.reduce((a, b) => a + b, 0);
+    const maxSize = sizes.reduce((a, b) => Math.max(a, b), 1);
+    const { cols: cCols, rows: cRows } = getClusterDims(maxSize);
 
     const saved = settings.groupPositions || [];
-    const auto = calcAutoPositions(groupCount, groupSize);
+    const auto = calcAutoPositions(sizes);
     const positions = [];
 
-    // 모둠 간 충분한 간격을 둔 그리드 좌표 생성
-    // 각 모둠이 고유한 row/col 영역을 갖도록 모둠 크기 기반으로 오프셋 계산
-    for (let g = 0; g < groupCount; g++) {
+    // 모둠 간 충분한 간격을 둔 그리드 좌표 + 실제 픽셀 좌표 보존
+    for (let g = 0; g < sizes.length; g++) {
       const gp = saved.find(p => p.groupIndex === g) || auto[g] || { x: 0, y: 0 };
-      // 픽셀 좌표를 블록 단위로 변환 (모둠 간 겹침 방지)
       const seatW = 64, seatH = 48, seatGap = 4;
       const blockW = cCols * (seatW + seatGap) + 36;
       const blockH = cRows * (seatH + seatGap) + 36;
+      // 격자 행/열 (성별 알고리즘 등 격자 기반 로직용)
       const baseRow = Math.round(gp.y / blockH) * (cRows + 1);
       const baseCol = Math.round(gp.x / blockW) * (cCols + 1);
-      for (let s = 0; s < groupSize; s++) {
-        const idx = g * groupSize + s;
+      const groupStart = getGroupStartIndex(g, sizes);
+      const gSize = sizes[g];
+      for (let s = 0; s < gSize; s++) {
+        const idx = groupStart + s;
         if (idx >= totalSeats) break;
         const r = Math.floor(s / cCols);
         const c = s % cCols;
-        positions.push({ index: idx, row: baseRow + r, col: baseCol + c });
+        // 픽셀 좌표: 모둠 픽셀 위치 + 클러스터 내부 좌석 오프셋
+        const px = gp.x + c * (seatW + seatGap);
+        const py = gp.y + r * (seatH + seatGap);
+        positions.push({
+          index: idx,
+          row: baseRow + r,
+          col: baseCol + c,
+          px,
+          py,
+          groupIndex: g
+        });
       }
     }
     return positions;
   },
 
-  getSeatCount(settings) {
-    const groupSize = this.getGroupSize(settings);
-    const saved = settings.groupPositions;
-    if (saved && saved.length > 0) {
-      return saved.length * groupSize;
+  // 좌석의 실제 픽셀 좌표로 chebyshev 거리 계산.
+  // 모둠 간 시각적 분리(드래그된 위치)도 정확히 반영.
+  distance(pos1, pos2) {
+    if (pos1.px != null && pos2.px != null) {
+      const dx = Math.abs(pos1.px - pos2.px) / SEAT_PX_W;
+      const dy = Math.abs(pos1.py - pos2.py) / SEAT_PX_H;
+      return Math.round(Math.max(dx, dy));
     }
-    return (settings.columns || 6) * (settings.rows || 5);
+    return chebyshevDistance(pos1, pos2);
+  },
+
+  getSeatCount(settings) {
+    const sizes = getGroupSizes(settings);
+    return sizes.reduce((a, b) => a + b, 0);
   },
 
   getGroupSize(settings) {
-    return Math.max(3, Math.min(8, settings.groupSize || 4));
+    return Math.max(2, Math.min(8, settings.groupSize || 4));
+  },
+
+  getGroupSizes(settings) {
+    return getGroupSizes(settings);
   },
 
   getGroupIndex(seatIdx, settings) {
-    return Math.floor(seatIdx / this.getGroupSize(settings));
+    const sizes = getGroupSizes(settings);
+    let acc = 0;
+    for (let g = 0; g < sizes.length; g++) {
+      acc += sizes[g];
+      if (seatIdx < acc) return g;
+    }
+    return sizes.length - 1;
   },
 
   getGroupCount(settings) {
-    return Math.ceil(this.getSeatCount(settings) / this.getGroupSize(settings));
-  },
-
-  distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    return getGroupSizes(settings).length;
   },
 
   render(container, settings, assignment, options = {}) {
-    const groupSize = this.getGroupSize(settings);
-    const totalSeats = this.getSeatCount(settings);
-    const groupCount = Math.ceil(totalSeats / groupSize);
+    const sizes = getGroupSizes(settings);
+    const totalSeats = sizes.reduce((a, b) => a + b, 0);
+    const maxSize = sizes.reduce((a, b) => Math.max(a, b), 1);
     const tv = options.teacherView;
-    const { cols: clusterCols } = getClusterDims(groupSize);
+    const { cols: clusterCols } = getClusterDims(maxSize);
 
     // 저장된 위치 or 자동 계산
     const saved = settings.groupPositions || [];
-    const auto = calcAutoPositions(groupCount, groupSize);
+    const auto = calcAutoPositions(sizes);
 
     const positions = [];
-    for (let g = 0; g < groupCount; g++) {
+    for (let g = 0; g < sizes.length; g++) {
       positions.push(saved.find(p => p.groupIndex === g) || auto[g]);
     }
 
-    // 캔버스 크기 계산 (교사: 64x48, 학생: 비례 확대)
+    // 캔버스 크기 계산
     const baseSeatW = 64, baseSeatH = 48, baseGap = 4, basePad = 12;
-    // 학생 화면(container가 student-grid 내부)이면 좌석이 CSS로 더 크므로 비례 스케일
     const isStudentView = container.classList.contains('student-grid') || container.closest('.student-grid');
     const scale = isStudentView ? 1.55 : 1;
     const seatW = Math.round(baseSeatW * scale);
@@ -1648,7 +1808,7 @@ const groupLayout = {
     const pad = Math.round(basePad * scale);
 
     const blockW = clusterCols * (seatW + seatGap) + pad;
-    const blockH = getClusterDims(groupSize).rows * (seatH + seatGap) + Math.round(28 * scale);
+    const blockH = getClusterDims(maxSize).rows * (seatH + seatGap) + Math.round(28 * scale);
     let maxX = Math.round(300 * scale), maxY = Math.round(200 * scale);
     positions.forEach(gp => {
       if (!gp) return;
@@ -1656,6 +1816,7 @@ const groupLayout = {
       maxY = Math.max(maxY, Math.round(gp.y * scale) + blockH + 10);
     });
 
+    const disabled = new Set(settings.disabledSeats || []);
     let html = tv ? '' : '<div class="blackboard">칠  판</div>';
     html += '<div class="group-layout-canvas" style="position:relative; min-height:' + maxY + 'px; width:' + maxX + 'px; margin:0 auto;">';
 
@@ -1665,24 +1826,29 @@ const groupLayout = {
     for (const gp of order) {
       if (!gp) continue;
       const g = gp.groupIndex;
-      const groupStart = g * groupSize;
+      const groupStart = getGroupStartIndex(g, sizes);
+      const gSize = sizes[g];
       const scaledX = Math.round(gp.x * scale);
       const scaledY = Math.round(gp.y * scale);
       const displayX = tv ? (maxX - scaledX - blockW) : scaledX;
       const displayY = tv ? (maxY - scaledY - blockH) : scaledY;
 
       html += '<div class="group-cluster" data-group-index="' + g + '" style="position:absolute; left:' + displayX + 'px; top:' + displayY + 'px;">';
-      html += '<div class="group-label">' + (g + 1) + '모둠</div>';
+      html += '<div class="group-label">' + (g + 1) + '모둠 (' + gSize + '명)</div>';
       html += '<div class="group-cluster-seats" style="display:grid; grid-template-columns:repeat(' + clusterCols + ',' + seatW + 'px); gap:' + seatGap + 'px;">';
 
-      // 선생님 시선: 클러스터 내 좌석을 역순 렌더링 (좌우+상하 반전)
+      // 선생님 시선: 클러스터 내 좌석을 역순 렌더링
       const seatIndices = [];
-      for (let s = 0; s < groupSize; s++) seatIndices.push(groupStart + s);
+      for (let s = 0; s < gSize; s++) seatIndices.push(groupStart + s);
       if (tv) seatIndices.reverse();
 
       for (const idx of seatIndices) {
         if (idx >= totalSeats) {
           html += '<div class="seat empty" style="visibility:hidden"></div>';
+          continue;
+        }
+        if (disabled.has(idx)) {
+          html += '<div class="seat disabled" data-seat="' + idx + '" aria-hidden="true"></div>';
           continue;
         }
         const name = assignment ? assignment[idx] : null;
@@ -1720,6 +1886,7 @@ function enableGroupDrag(container, settings, onChange) {
 
   let dragging = null;
   let dragOffset = { x: 0, y: 0 };
+  let dragMoved = false;
   const canvas = container.querySelector('.group-layout-canvas');
   if (!canvas) return;
 
@@ -1732,6 +1899,7 @@ function enableGroupDrag(container, settings, onChange) {
     if (!block) return;
     e.preventDefault();
     dragging = block;
+    dragMoved = false;
     block.style.cursor = 'grabbing';
     block.style.zIndex = '10';
     block.style.boxShadow = '0 4px 16px rgba(0,0,0,0.15)';
@@ -1756,6 +1924,9 @@ function enableGroupDrag(container, settings, onChange) {
     newX = Math.max(0, newX);
     newY = Math.max(0, newY);
 
+    if (newX !== parseInt(dragging.style.left || 0) || newY !== parseInt(dragging.style.top || 0)) {
+      dragMoved = true;
+    }
     dragging.style.left = newX + 'px';
     dragging.style.top = newY + 'px';
   };
@@ -1766,6 +1937,8 @@ function enableGroupDrag(container, settings, onChange) {
     dragging.style.zIndex = '';
     dragging.style.boxShadow = '';
     dragging.style.opacity = '';
+
+    const wasDragMoved = dragMoved;
 
     // 현재 위치를 수집하여 저장
     const allClusters = canvas.querySelectorAll('.group-cluster[data-group-index]');
@@ -1780,7 +1953,14 @@ function enableGroupDrag(container, settings, onChange) {
     positions.sort((a, b) => a.groupIndex - b.groupIndex);
 
     dragging = null;
-    if (onChange) onChange(positions);
+    // 실제 드래그가 일어났으면 저장. 단순 클릭이면 좌석 클릭(고정 픽업 등)이 정상 동작하도록 무시.
+    if (wasDragMoved && onChange) onChange(positions);
+    // 드래그 직후 발생할 수 있는 click 이벤트가 좌석 onSeatClick으로 전파되지 않도록 짧은 가드
+    if (wasDragMoved) {
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      canvas.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => canvas.removeEventListener('click', swallow, { capture: true }), 50);
+    }
   };
 
   canvas.addEventListener('mousedown', onDown);
@@ -1867,6 +2047,23 @@ function initRoster() {
     textarea.value = data.students.join('\n');
     countEl.textContent = `${data.students.length}명`;
   }
+
+  // 명단 빈 상태 안내 배너 (다른 PC 동기화 안내)
+  const emptyBanner = document.getElementById('empty-roster-banner');
+  const importShortcutBtn = document.getElementById('btn-import-shortcut');
+  function syncEmptyBanner() {
+    if (!emptyBanner) return;
+    const d = store.load();
+    emptyBanner.style.display = d.students.length === 0 ? 'flex' : 'none';
+  }
+  if (importShortcutBtn) {
+    importShortcutBtn.addEventListener('click', () => {
+      const importBtn = document.getElementById('btn-import');
+      if (importBtn) importBtn.click();
+    });
+  }
+  syncEmptyBanner();
+  window.addEventListener('roster-updated', syncEmptyBanner);
 
   // 실시간 카운트
   textarea.addEventListener('input', () => {
@@ -1985,6 +2182,29 @@ function initRoster() {
 // === components/fixed-seat-editor.js ===
 // 고정 자리 편집 컴포넌트
 
+// 외부(미리보기 좌석 클릭)에서 호출하기 위한 핸들. teacher-screen이 ref를 보관함.
+const fixedSeatPicker = {
+  /** 학생이 선택돼 있으면 즉시 해당 좌석에 고정. 없으면 안내. true 반환 시 처리됨. */
+  pickFromSeat(seatIndex) {
+    const select = document.getElementById('fixed-student-select');
+    if (!select) return false;
+    if (!select.value) {
+      showToast('먼저 고정할 학생을 선택해 주세요.', 'info', 2200);
+      return false;
+    }
+    const seatInput = document.getElementById('fixed-seat-number');
+    const addBtn = document.getElementById('btn-add-fixed');
+    if (!seatInput || !addBtn) return false;
+    seatInput.value = seatIndex + 1;
+    addBtn.click();
+    return true;
+  },
+  isStudentSelected() {
+    const select = document.getElementById('fixed-student-select');
+    return !!(select && select.value);
+  }
+};
+
 function initFixedSeatEditor(onUpdate) {
   const select = document.getElementById('fixed-student-select');
   const seatInput = document.getElementById('fixed-seat-number');
@@ -1999,7 +2219,15 @@ function initFixedSeatEditor(onUpdate) {
     // 자리 번호 최대값 설정
     const totalSeats = getTotalSeats(data);
     seatInput.max = totalSeats;
+
+    // pick mode 시각 신호 (학생 선택 여부에 따라 body 클래스)
+    document.body.classList.toggle('fixed-pick-mode', !!select.value);
   }
+
+  // 학생 선택이 바뀌면 pick-mode 클래스도 바뀌도록
+  select.addEventListener('change', () => {
+    document.body.classList.toggle('fixed-pick-mode', !!select.value);
+  });
 
   addBtn.addEventListener('click', () => {
     const data = store.load();
@@ -2095,12 +2323,82 @@ function renderFixedList(list, fixedSeats, onUpdate) {
 
 function initConstraintEditor() {
   const selectA = document.getElementById('sep-student-a');
-  const bWrap = document.getElementById('sep-student-b-wrap');
   const bToggle = document.getElementById('sep-student-b-toggle');
   const bDropdown = document.getElementById('sep-student-b-dropdown');
-  const distInput = document.getElementById('sep-distance');
-  const addBtn = document.getElementById('btn-add-sep');
   const list = document.getElementById('sep-rule-list');
+
+  // 모달 backdrop 1회 생성
+  let backdrop = document.getElementById('multi-select-backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'multi-select-backdrop';
+    backdrop.className = 'multi-select-backdrop';
+    document.body.appendChild(backdrop);
+  }
+
+  function openDropdown() {
+    if (!selectA.value) {
+      showToast('먼저 기준 학생을 선택해 주세요.', 'warning');
+      return;
+    }
+    bDropdown.classList.add('open');
+    backdrop.classList.add('open');
+    const searchEl = bDropdown.querySelector('.multi-select-search');
+    if (searchEl) setTimeout(() => searchEl.focus(), 0);
+  }
+
+  function applyRules() {
+    const data = store.load();
+    const studentA = selectA.value;
+    if (!studentA) return;
+
+    const selectedEntries = getSelectedStudentsWithDist(bDropdown);
+    if (selectedEntries.length === 0) {
+      showToast('분리할 학생을 1명 이상 선택해 주세요.', 'warning');
+      return;
+    }
+
+    let addedCount = 0;
+    let updatedCount = 0;
+    for (const entry of selectedEntries) {
+      const rule = { studentA, studentB: entry.name, minDistance: entry.minDistance };
+      if (!validateSeparationRule(rule, data.students)) continue;
+
+      const existingIdx = data.separationRules.findIndex(
+        r => (r.studentA === studentA && r.studentB === entry.name) ||
+             (r.studentA === entry.name && r.studentB === studentA)
+      );
+
+      if (existingIdx >= 0) {
+        // 이미 있는 규칙 — 칸 수가 달라졌으면 업데이트
+        if (data.separationRules[existingIdx].minDistance !== entry.minDistance) {
+          data.separationRules[existingIdx].minDistance = entry.minDistance;
+          updatedCount++;
+        }
+      } else {
+        data.separationRules.push(rule);
+        addedCount++;
+      }
+    }
+
+    if (addedCount === 0 && updatedCount === 0) {
+      showToast('변경된 내용이 없습니다.', 'info');
+      return;
+    }
+
+    store.update({ separationRules: data.separationRules });
+    renderConstraintList(list, store.load().separationRules);
+
+    const parts = [];
+    if (addedCount > 0) parts.push(`${addedCount}개 추가`);
+    if (updatedCount > 0) parts.push(`${updatedCount}개 업데이트`);
+    showToast(`분리 규칙 ${parts.join(', ')}되었습니다.`, 'success');
+  }
+
+  function closeDropdown() {
+    bDropdown.classList.remove('open');
+    backdrop.classList.remove('open');
+  }
 
   function refresh() {
     const data = store.load();
@@ -2109,74 +2407,34 @@ function initConstraintEditor() {
     renderConstraintList(list, data.separationRules);
   }
 
-  // Toggle dropdown
   bToggle.addEventListener('click', (e) => {
     e.stopPropagation();
-    bDropdown.classList.toggle('open');
+    if (bDropdown.classList.contains('open')) closeDropdown();
+    else openDropdown();
   });
 
-  // Close dropdown on outside click
-  document.addEventListener('click', (e) => {
-    if (!bWrap.contains(e.target)) {
-      bDropdown.classList.remove('open');
+  backdrop.addEventListener('click', closeDropdown);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && bDropdown.classList.contains('open')) closeDropdown();
+  });
+
+  // 위임 핸들러: × 닫기 / 선택 완료(→ 규칙 즉시 반영 후 닫기)
+  bDropdown.addEventListener('click', (e) => {
+    if (e.target.closest('.multi-select-close')) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeDropdown();
+    } else if (e.target.closest('.multi-select-done')) {
+      e.preventDefault();
+      e.stopPropagation();
+      applyRules();
+      closeDropdown();
     }
   });
 
-  // Update B options when A changes
   selectA.addEventListener('change', () => {
     const data = store.load();
     populateMultiSelect(bDropdown, bToggle, data.students, selectA.value);
-  });
-
-  // 거리 도움말 추가
-  const distHint = document.createElement('p');
-  distHint.className = 'hint';
-  distHint.style.margin = '0';
-  distHint.textContent = '(가로·세로 칸 수 합, 대각선=2칸)';
-  distInput.parentElement.parentElement.appendChild(distHint);
-
-  addBtn.addEventListener('click', () => {
-    const data = store.load();
-    const studentA = selectA.value;
-    const selectedBs = getSelectedStudents(bDropdown);
-    const minDistance = parseInt(distInput.value) || 2;
-
-    if (!studentA) {
-      showToast('기준 학생을 선택해 주세요.', 'warning');
-      return;
-    }
-
-    if (selectedBs.length === 0) {
-      showToast('분리할 학생을 1명 이상 선택해 주세요.', 'warning');
-      return;
-    }
-
-    let addedCount = 0;
-    for (const studentB of selectedBs) {
-      const rule = { studentA, studentB, minDistance };
-
-      if (!validateSeparationRule(rule, data.students)) continue;
-
-      // 중복 체크
-      const dup = data.separationRules.some(
-        r => (r.studentA === rule.studentA && r.studentB === rule.studentB) ||
-             (r.studentA === rule.studentB && r.studentB === rule.studentA)
-      );
-      if (dup) continue;
-
-      data.separationRules.push(rule);
-      addedCount++;
-    }
-
-    if (addedCount === 0) {
-      showToast('추가할 새 규칙이 없습니다. (이미 등록된 규칙일 수 있습니다)', 'warning');
-      return;
-    }
-
-    store.update({ separationRules: data.separationRules });
-    selectA.value = '';
-    refresh();
-    showToast(`${addedCount}개 분리 규칙이 추가되었습니다.`, 'success');
   });
 
   window.addEventListener('roster-updated', refresh);
@@ -2203,9 +2461,40 @@ function populateConstraintSelect(select, students) {
 function populateMultiSelect(dropdown, toggle, students, excludeStudent) {
   dropdown.innerHTML = '';
   const filtered = students.filter(s => s !== excludeStudent);
+  const defaultDist = 2;
+
+  // 기존 분리 규칙 로드 (pre-check용)
+  const existingRules = store.load().separationRules || [];
+
+  // 헤더 (제목 + 닫기 X + 검색 + 안내)
+  const header = document.createElement('div');
+  header.className = 'multi-select-header';
+  header.innerHTML = `
+    <div class="multi-select-titlebar">
+      <strong class="multi-select-title">분리할 학생 고르기</strong>
+      <button type="button" class="multi-select-close" aria-label="닫기">×</button>
+    </div>
+    <input type="text" class="multi-select-search" placeholder="학생 이름 검색..." aria-label="학생 검색">
+    <p class="multi-select-hint"><strong>체크박스를 눌러</strong> 분리할 학생을 고르고 칸 수를 지정하세요. <strong>1칸</strong> = 바로 옆/대각선 모두 금지, <strong>2칸</strong> = 한 자리 건너뛰기까지 금지. "선택 완료"를 누르면 바로 적용됩니다.</p>
+    <div class="multi-select-actions">
+      <button type="button" class="ms-select-all">보이는 학생 전체 선택</button>
+      <button type="button" class="ms-clear">선택 모두 해제</button>
+      <span class="ms-count">선택 0 / ${filtered.length}</span>
+    </div>`;
+  dropdown.appendChild(header);
+  header.addEventListener('click', e => e.stopPropagation());
+
+  // 항목 컨테이너
+  const itemsWrap = document.createElement('div');
+  itemsWrap.className = 'multi-select-items';
+  dropdown.appendChild(itemsWrap);
 
   if (filtered.length === 0) {
-    dropdown.innerHTML = '<div class="multi-select-item" style="color:var(--text-light)">학생 없음</div>';
+    const empty = document.createElement('div');
+    empty.className = 'ms-empty';
+    empty.textContent = '학생이 없습니다. 명단을 먼저 입력해 주세요.';
+    itemsWrap.appendChild(empty);
+    appendFooter(dropdown);
     toggle.textContent = '분리할 학생 선택';
     toggle.classList.remove('has-selection');
     return;
@@ -2214,22 +2503,142 @@ function populateMultiSelect(dropdown, toggle, students, excludeStudent) {
   filtered.forEach(s => {
     const label = document.createElement('label');
     label.className = 'multi-select-item';
+    label.dataset.name = s;
+
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = s;
-    cb.addEventListener('change', () => updateToggleText(dropdown, toggle));
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'multi-select-name';
+    nameSpan.textContent = s;
+
+    // 기존 규칙 확인 — 있으면 pre-check + 칸 수 채우기
+    const existingRule = existingRules.find(
+      r => (r.studentA === excludeStudent && r.studentB === s) ||
+           (r.studentA === s && r.studentB === excludeStudent)
+    );
+    const initDist = existingRule ? existingRule.minDistance : defaultDist;
+    const initChecked = !!existingRule;
+
+    // 학생별 거리 입력
+    const distWrap = document.createElement('span');
+    distWrap.className = 'ms-dist-wrap';
+    distWrap.innerHTML = `최소 <input type="number" class="ms-dist" min="1" max="5" value="${initDist}" ${initChecked ? '' : 'disabled'} aria-label="${s} 떨어뜨릴 칸 수"> 칸`;
+    distWrap.addEventListener('click', e => e.stopPropagation());
+    const distEl = distWrap.querySelector('.ms-dist');
+    distEl.addEventListener('input', () => {
+      const v = clampDist(distEl.value);
+      if (String(v) !== distEl.value) distEl.value = v;
+    });
+
+    if (initChecked) {
+      cb.checked = true;
+      // 기존 규칙 항목 시각 구분
+      label.classList.add('has-rule');
+    }
+
+    cb.addEventListener('change', () => {
+      distEl.disabled = !cb.checked;
+      if (cb.checked && (!distEl.value || distEl.value === '')) distEl.value = defaultDist;
+      updateToggleText(dropdown, toggle);
+      updateCount(dropdown);
+    });
+
     label.appendChild(cb);
-    label.appendChild(document.createTextNode(s));
-    dropdown.appendChild(label);
+    label.appendChild(nameSpan);
+    label.appendChild(distWrap);
+    itemsWrap.appendChild(label);
   });
 
-  toggle.textContent = '분리할 학생 선택';
-  toggle.classList.remove('has-selection');
+  // 검색 필터 — display 토글만, 절대 자동 선택 안 함
+  const searchInput = header.querySelector('.multi-select-search');
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim().toLowerCase();
+    let visibleCount = 0;
+    itemsWrap.querySelectorAll('.multi-select-item').forEach(el => {
+      const matches = !q || el.dataset.name.toLowerCase().includes(q);
+      el.style.display = matches ? '' : 'none';
+      if (matches) visibleCount++;
+    });
+    let empty = itemsWrap.querySelector('.ms-empty');
+    if (visibleCount === 0 && !empty) {
+      const e = document.createElement('div');
+      e.className = 'ms-empty';
+      e.textContent = '검색 결과 없음';
+      itemsWrap.appendChild(e);
+    } else if (visibleCount > 0 && empty) {
+      empty.remove();
+    }
+  });
+  searchInput.addEventListener('keydown', e => e.stopPropagation());
+
+  // 전체 선택 / 해제 — 명시적 버튼 클릭에서만
+  header.querySelector('.ms-select-all').addEventListener('click', () => {
+    itemsWrap.querySelectorAll('.multi-select-item').forEach(el => {
+      if (el.style.display === 'none') return;
+      const cb = el.querySelector('input[type="checkbox"]');
+      const dist = el.querySelector('.ms-dist');
+      cb.checked = true;
+      if (dist) {
+        dist.disabled = false;
+        if (!dist.value) dist.value = defaultDist;
+      }
+    });
+    updateToggleText(dropdown, toggle);
+    updateCount(dropdown);
+  });
+  header.querySelector('.ms-clear').addEventListener('click', () => {
+    itemsWrap.querySelectorAll('.multi-select-item').forEach(el => {
+      const cb = el.querySelector('input[type="checkbox"]');
+      const dist = el.querySelector('.ms-dist');
+      cb.checked = false;
+      if (dist) dist.disabled = true;
+    });
+    updateToggleText(dropdown, toggle);
+    updateCount(dropdown);
+  });
+
+  appendFooter(dropdown);
+
+  // 초기 pre-check 상태 반영
+  updateToggleText(dropdown, toggle);
+  updateCount(dropdown);
+}
+
+function appendFooter(dropdown) {
+  const footer = document.createElement('div');
+  footer.className = 'multi-select-footer';
+  footer.innerHTML = `<button type="button" class="btn btn-primary btn-sm multi-select-done">선택 완료</button>`;
+  dropdown.appendChild(footer);
+}
+
+function clampDist(val) {
+  const n = parseInt(val);
+  if (!n || isNaN(n)) return 2;
+  return Math.max(1, Math.min(5, n));
+}
+
+function updateCount(dropdown) {
+  const countEl = dropdown.querySelector('.ms-count');
+  if (!countEl) return;
+  const total = dropdown.querySelectorAll('.multi-select-items .multi-select-item').length;
+  const checked = dropdown.querySelectorAll('.multi-select-items input[type="checkbox"]:checked').length;
+  countEl.textContent = `선택 ${checked} / ${total}`;
 }
 
 function getSelectedStudents(dropdown) {
-  const checked = dropdown.querySelectorAll('input[type="checkbox"]:checked');
+  const checked = dropdown.querySelectorAll('.multi-select-items input[type="checkbox"]:checked');
   return Array.from(checked).map(cb => cb.value);
+}
+
+function getSelectedStudentsWithDist(dropdown) {
+  const checked = dropdown.querySelectorAll('.multi-select-items input[type="checkbox"]:checked');
+  return Array.from(checked).map(cb => {
+    const item = cb.closest('.multi-select-item');
+    const distEl = item ? item.querySelector('.ms-dist') : null;
+    return { name: cb.value, minDistance: clampDist(distEl ? distEl.value : null) };
+  });
 }
 
 function updateToggleText(dropdown, toggle) {
@@ -2249,22 +2658,18 @@ function updateToggleText(dropdown, toggle) {
 function renderConstraintList(list, rules) {
   list.innerHTML = '';
 
-  // 학생A별로 그룹화
-  const groups = {};
-  rules.forEach((rule, i) => {
-    if (!groups[rule.studentA]) groups[rule.studentA] = [];
-    groups[rule.studentA].push({ rule, index: i });
-  });
+  if (rules.length === 0) return;
 
   rules.forEach((rule, i) => {
     const li = document.createElement('li');
-    const span = document.createElement('span');
-    span.appendChild(document.createTextNode(rule.studentA + ' ↔ ' + rule.studentB + ' '));
-    const em = document.createElement('em');
-    em.style.cssText = 'color:var(--text-light);font-size:0.8em';
-    em.textContent = `(최소 ${rule.minDistance}칸)`;
-    span.appendChild(em);
-    li.appendChild(span);
+    li.className = 'sep-rule-item';
+    li.innerHTML = `
+      <div class="sep-rule-body">
+        <span class="sep-student-badge">${escapeHtml(rule.studentA)}</span>
+        <span class="sep-arrow">↔</span>
+        <span class="sep-student-badge">${escapeHtml(rule.studentB)}</span>
+        <span class="sep-dist-badge">최소 ${rule.minDistance}칸</span>
+      </div>`;
     const btn = document.createElement('button');
     btn.className = 'btn-remove';
     btn.textContent = '✕';
@@ -2279,6 +2684,10 @@ function renderConstraintList(list, rules) {
     li.appendChild(btn);
     list.appendChild(li);
   });
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
 // === algorithm/seat-randomizer.js ===
@@ -2656,16 +3065,21 @@ function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, sepa
   const assignedStudents = new Set();
   const availableSeats = new Set();
 
-  // 1. 고정 자리 먼저 배정
+  // 사용자가 X로 삭제한 좌석은 배정 후보에서 제외
+  const disabledSet = new Set(data.layoutSettings?.disabledSeats || []);
+
+  // 1. 고정 자리 먼저 배정 (단, 비활성 좌석으로 고정된 경우 무시)
   for (const fs of fixedSeats) {
     if (!students.includes(fs.studentName)) continue;
     if (fs.seatIndex >= totalSeats) continue;
+    if (disabledSet.has(fs.seatIndex)) continue;
     assignment[fs.seatIndex] = fs.studentName;
     assignedStudents.add(fs.studentName);
   }
 
-  // 사용 가능한 좌석 세트 (고정 좌석 제외)
+  // 사용 가능한 좌석 세트 (고정 좌석 + 비활성 좌석 제외)
   positions.forEach(p => {
+    if (disabledSet.has(p.index)) return;
     if (assignment[p.index] === undefined) availableSeats.add(p.index);
   });
 
@@ -2854,14 +3268,16 @@ function checkGroupConstraint(student, seatIdx, assignment, data) {
   const groupHistory = data.groupHistory || [];
   if (groupHistory.length === 0) return true;
 
-  const groupSize = data.layoutSettings.groupSize || 4;
-  const myGroupIdx = Math.floor(seatIdx / groupSize);
+  // 가변 크기 모둠 지원: groupLayout 헬퍼로 그룹 인덱스 계산
+  const myGroupIdx = groupLayout.getGroupIndex(seatIdx, data.layoutSettings);
+  const sizes = groupLayout.getGroupSizes(data.layoutSettings);
   const excludeCount = data.groupExcludeCount || 1;
   const recentHistory = groupHistory.slice(-excludeCount);
 
-  // 현재 같은 모둠에 이미 배정된 학생 찾기
-  const groupStart = myGroupIdx * groupSize;
-  const groupEnd = groupStart + groupSize;
+  // 현재 같은 모둠에 이미 배정된 학생 찾기 (가변 크기)
+  let groupStart = 0;
+  for (let i = 0; i < myGroupIdx; i++) groupStart += sizes[i] || 0;
+  const groupEnd = groupStart + (sizes[myGroupIdx] || 0);
   const currentGroupmates = [];
   for (let i = groupStart; i < groupEnd; i++) {
     if (assignment[i] && assignment[i] !== student) {
@@ -2954,6 +3370,66 @@ function initTeacherScreen() {
     refreshPreview();
   });
 
+  // === 빈 좌석 X 표시 + 삭제 ===
+  function clearAllPending() {
+    seatGrid.querySelectorAll('.seat.pending-delete').forEach(s => {
+      s.classList.remove('pending-delete');
+      const xx = s.querySelector('.seat-delete-x');
+      if (xx) xx.remove();
+    });
+  }
+
+  function deleteSeat(seatIndex) {
+    const d = store.load();
+    const next = Array.from(new Set([...(d.layoutSettings.disabledSeats || []), seatIndex]));
+    const newFixed = (d.fixedSeats || []).filter(f => f.seatIndex !== seatIndex);
+    store.update({
+      layoutSettings: { ...d.layoutSettings, disabledSeats: next },
+      fixedSeats: newFixed
+    });
+    currentPreviewAssignment = null;
+    refreshPreview();
+    showToast(`${seatIndex + 1}번 자리를 삭제했습니다.`, 'info', 1800);
+  }
+
+  function handleEmptySeatClickForDelete(seatIndex) {
+    const el = seatGrid.querySelector(`.seat[data-seat="${seatIndex}"]`);
+    if (!el) return;
+    // 학생 이미 배정된 좌석/이미 삭제된 좌석은 대상 아님
+    if (el.classList.contains('assigned') || el.classList.contains('disabled')) return;
+    // 토글
+    if (el.classList.contains('pending-delete')) {
+      clearAllPending();
+      return;
+    }
+    clearAllPending();
+    el.classList.add('pending-delete');
+    const xBtn = document.createElement('button');
+    xBtn.type = 'button';
+    xBtn.className = 'seat-delete-x';
+    xBtn.setAttribute('aria-label', `${seatIndex + 1}번 자리 삭제`);
+    xBtn.textContent = '✕';
+    // X 버튼 직접 핸들러 — stopPropagation으로 좌석 클릭(토글)까지 버블 차단
+    xBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteSeat(seatIndex);
+    });
+    // mousedown도 차단 (capture 단계 좌석 핸들러 영향 방지)
+    xBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+    el.appendChild(xBtn);
+  }
+
+  // 외부 클릭 시 pending 해제 (한 번 등록)
+  let _pendingOutsideHandlerInstalled = false;
+  function attachDeletePendingHandlers() {
+    if (_pendingOutsideHandlerInstalled) return;
+    _pendingOutsideHandlerInstalled = true;
+    document.addEventListener('click', (e) => {
+      if (!seatGrid.contains(e.target)) clearAllPending();
+    });
+  }
+
   function refreshPreview() {
     const data = store.load();
     const assignment = currentPreviewAssignment || data.lastAssignment?.mapping || null;
@@ -2962,15 +3438,26 @@ function initTeacherScreen() {
     customEditor.style.display = 'none';
 
     if (data.layoutType === 'custom') {
-      customEditor.style.display = 'block';
+      customEditor.style.display = 'flex';
       previewTitle.textContent = '자유배치 편집기';
     } else {
-      seatGrid.style.display = 'block';
+      seatGrid.style.display = 'flex';
       previewTitle.textContent = data.layoutType === 'group' ? '모둠 배치 (드래그로 조정 가능)' : '배치도 미리보기';
       renderSeatGrid(seatGrid, data, assignment, {
         fixedSeats: data.fixedSeats,
-        teacherView: isTeacherViewPreview
+        teacherView: isTeacherViewPreview,
+        onSeatClick: (seatIndex) => {
+          // 1) 학생이 선택돼 있으면: 고정자리 픽업 (기존 F1)
+          if (fixedSeatPicker.isStudentSelected()) {
+            fixedSeatPicker.pickFromSeat(seatIndex);
+            return;
+          }
+          // 2) 그렇지 않으면: 빈 좌석에 X(삭제 후보) 토글
+          handleEmptySeatClickForDelete(seatIndex);
+        }
       });
+      // 빈 좌석 외부 클릭 시 pending 해제 (1회 등록)
+      attachDeletePendingHandlers();
       // 모둠대형: 미리보기에서 드래그 활성화
       if (data.layoutType === 'group' && !isTeacherViewPreview) {
         enableGroupDrag(seatGrid, data.layoutSettings, (positions) => {
@@ -3122,26 +3609,119 @@ function initTeacherScreen() {
 
   // === 모둠 옵션 ===
   const groupSizeInput = document.getElementById('group-size');
+  const groupCountInput = document.getElementById('group-count');
+  const groupSizesEditor = document.getElementById('group-sizes-editor');
+
+  function clampSize(n) { return Math.max(2, Math.min(8, parseInt(n) || 4)); }
+  function clampCount(n) { return Math.max(1, Math.min(20, parseInt(n) || 1)); }
+
+  // 현재 layoutSettings에서 모둠 인원 배열 도출 (없으면 count×size 균등 생성)
+  function deriveSizes(settings) {
+    const fallback = clampSize(settings.groupSize || 4);
+    if (Array.isArray(settings.groupSizes) && settings.groupSizes.length > 0) {
+      return settings.groupSizes.map(clampSize);
+    }
+    if (settings.groupCount && settings.groupCount > 0) {
+      return Array.from({ length: clampCount(settings.groupCount) }, () => fallback);
+    }
+    // 폴백: 학생 수 ÷ groupSize
+    const cols = settings.columns || 6;
+    const rows = settings.rows || 5;
+    const total = cols * rows;
+    const c = Math.max(1, Math.ceil(total / fallback));
+    return Array.from({ length: c }, () => fallback);
+  }
+
+  function renderGroupSizesEditor() {
+    if (!groupSizesEditor) return;
+    const d = store.load();
+    const sizes = deriveSizes(d.layoutSettings);
+    let html = '<div class="group-sizes-list">';
+    sizes.forEach((s, i) => {
+      html += `<label class="group-size-row"><span>${i + 1}모둠</span>
+        <input type="number" class="group-size-each" data-index="${i}" min="1" max="8" value="${s}">명</label>`;
+    });
+    html += '</div>';
+    const total = sizes.reduce((a, b) => a + b, 0);
+    html += `<div class="group-sizes-total">총 좌석 <strong>${total}</strong>석 (${sizes.length}개 모둠)</div>`;
+    groupSizesEditor.innerHTML = html;
+
+    groupSizesEditor.querySelectorAll('.group-size-each').forEach(input => {
+      input.addEventListener('input', () => {
+        clearTimeout(previewDebounce);
+        previewDebounce = setTimeout(() => {
+          const current = store.load();
+          const newSizes = deriveSizes(current.layoutSettings).slice();
+          const idx = parseInt(input.dataset.index, 10);
+          newSizes[idx] = clampSize(input.value);
+          store.update({
+            layoutSettings: {
+              ...current.layoutSettings,
+              groupSizes: newSizes,
+              groupCount: newSizes.length,
+              groupPositions: []
+            }
+          });
+          renderGroupSizesEditor();
+          refreshPreview();
+        }, 300);
+      });
+    });
+  }
 
   if (groupSizeInput) {
     groupSizeInput.value = data.layoutSettings.groupSize || 4;
+    if (groupCountInput) {
+      const initialSizes = deriveSizes(data.layoutSettings);
+      groupCountInput.value = initialSizes.length;
+    }
 
     groupSizeInput.addEventListener('input', () => {
       clearTimeout(previewDebounce);
       previewDebounce = setTimeout(() => {
         const current = store.load();
-        const groupSize = Math.max(3, Math.min(8, parseInt(groupSizeInput.value) || 4));
-        // 모둠 크기 변경 → 커스텀 위치 초기화 (자동 재배치)
+        const groupSize = clampSize(groupSizeInput.value);
+        const count = (current.layoutSettings.groupSizes || []).length
+          || current.layoutSettings.groupCount
+          || deriveSizes(current.layoutSettings).length;
+        const newSizes = Array.from({ length: count }, () => groupSize);
         store.update({
           layoutSettings: {
             ...current.layoutSettings,
             groupSize,
+            groupSizes: newSizes,
+            groupCount: count,
             groupPositions: []
           }
         });
+        renderGroupSizesEditor();
         refreshPreview();
       }, 300);
     });
+
+    if (groupCountInput) {
+      groupCountInput.addEventListener('input', () => {
+        clearTimeout(previewDebounce);
+        previewDebounce = setTimeout(() => {
+          const current = store.load();
+          const newCount = clampCount(groupCountInput.value);
+          const fallbackSize = clampSize(current.layoutSettings.groupSize || 4);
+          // 기존 모둠 인원 유지하면서 길이 조절
+          const oldSizes = deriveSizes(current.layoutSettings);
+          const newSizes = Array.from({ length: newCount }, (_, i) => oldSizes[i] != null ? oldSizes[i] : fallbackSize);
+          store.update({
+            layoutSettings: {
+              ...current.layoutSettings,
+              groupSizes: newSizes,
+              groupCount: newCount,
+              groupPositions: []
+            }
+          });
+          renderGroupSizesEditor();
+          refreshPreview();
+        }, 300);
+      });
+    }
 
     // 배치 초기화 버튼 (드래그 조정 되돌리기)
     const btnGroupReset = document.getElementById('btn-group-reset');
@@ -3155,6 +3735,9 @@ function initTeacherScreen() {
         showToast('모둠 배치가 초기화되었습니다.', 'info');
       });
     }
+
+    // 초기 렌더
+    renderGroupSizesEditor();
   }
 
   // === 모둠원 중복 방지 ===
@@ -3215,13 +3798,24 @@ function initTeacherScreen() {
   function initCustomCanvas() {
     const canvas = document.getElementById('custom-canvas');
     const current = store.load();
-    customLayout.init(canvas, current.layoutSettings.customDesks || [], (desks) => {
-      const d = store.load();
-      store.update({
-        layoutSettings: { ...d.layoutSettings, customDesks: desks }
-      });
-      updateCustomStatus();
-    });
+    customLayout.init(
+      canvas,
+      current.layoutSettings.customDesks || [],
+      (desks) => {
+        const d = store.load();
+        store.update({
+          layoutSettings: { ...d.layoutSettings, customDesks: desks }
+        });
+        updateCustomStatus();
+      },
+      (seatIndex) => {
+        // 학생이 선택돼 있으면 픽업, 아니면 일반 선택 동작 유지
+        if (fixedSeatPicker.isStudentSelected()) {
+          return fixedSeatPicker.pickFromSeat(seatIndex);
+        }
+        return false;
+      }
+    );
   }
 
   document.getElementById('btn-add-desk').addEventListener('click', () => {
@@ -3294,7 +3888,7 @@ function initTeacherScreen() {
       currentPreviewAssignment = result;
       // 자유배치: 결과 표시를 위해 seat-grid를 보이게
       if (current.layoutType === 'custom') {
-        seatGrid.style.display = 'block';
+        seatGrid.style.display = 'flex';
       }
       renderSeatGrid(seatGrid, current, result, { fixedSeats: current.fixedSeats, animate: true, teacherView: isTeacherViewPreview });
 
@@ -3427,6 +4021,119 @@ function initTeacherScreen() {
   if (data.layoutType === 'custom') {
     setTimeout(initCustomCanvas, 0);
   }
+
+  // 그리드 영역 드래그 리사이저
+  initPreviewResizer();
+}
+
+// === 그리드 영역 상하 드래그 리사이즈 ===
+const PREVIEW_GRID_HEIGHT_KEY = 'preview-grid-height';
+
+function initPreviewResizer() {
+  const resizer = document.getElementById('preview-resizer');
+  const panel = document.querySelector('.preview-panel');
+  const seatGrid = document.getElementById('teacher-seat-grid');
+  const customEditor = document.getElementById('custom-editor');
+  if (!resizer || !panel || !seatGrid || !customEditor) return;
+
+  // 리사이저는 결과 그리드(seatGrid)에만 영향. 자유배치 캔버스는 자동 분배 유지.
+  function applyHeight(h) {
+    seatGrid.style.flex = `0 0 ${h}px`;
+  }
+
+  function getMaxHeight() {
+    const panelRect = panel.getBoundingClientRect();
+    const headerEl = panel.querySelector('.preview-header-row');
+    const footerEl = panel.querySelector('.preview-actions');
+    const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+    const footerH = footerEl ? footerEl.getBoundingClientRect().height : 0;
+    const resizerH = resizer.getBoundingClientRect().height;
+    const cs = getComputedStyle(panel);
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    // 패널 안에서 그리드가 차지할 수 있는 최대 = 패널 - 다른 모든 자식 - 패널 padding - 안전 마진
+    const byPanel = panelRect.height - headerH - footerH - resizerH - padTop - padBottom - 8;
+    // 푸터가 viewport 안에 들어가도록 추가 안전망
+    const seatTop = seatGrid.getBoundingClientRect().top;
+    const byViewport = window.innerHeight - seatTop - resizerH - footerH - 16;
+    return Math.max(160, Math.min(byPanel, byViewport));
+  }
+
+  // 저장된 사용자 설정 복원 (max로 클램프)
+  function restoreSaved() {
+    const saved = parseInt(localStorage.getItem(PREVIEW_GRID_HEIGHT_KEY), 10);
+    if (!saved || saved < 120) return;
+    applyHeight(Math.min(saved, getMaxHeight()));
+  }
+  // 첫 layout이 안정화된 다음 프레임에 적용
+  requestAnimationFrame(restoreSaved);
+
+  // 윈도우 리사이즈 시 max를 넘는 부분 재클램프
+  window.addEventListener('resize', () => {
+    const cur = parseInt(seatGrid.style.flex?.match(/\d+/)?.[0]) || 0;
+    if (cur > 0) {
+      const safe = Math.min(cur, getMaxHeight());
+      if (safe !== cur) applyHeight(safe);
+    }
+  });
+
+  function getActiveGrid() {
+    return seatGrid;
+  }
+
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+
+  function onDown(e) {
+    e.preventDefault();
+    dragging = true;
+    resizer.classList.add('dragging');
+    const t = e.touches ? e.touches[0] : e;
+    startY = t.clientY;
+    startH = getActiveGrid().getBoundingClientRect().height;
+    document.body.style.cursor = 'ns-resize';
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    e.preventDefault();
+    const t = e.touches ? e.touches[0] : e;
+    const delta = t.clientY - startY;
+    const newH = Math.max(120, Math.min(getMaxHeight(), startH + delta));
+    applyHeight(newH);
+  }
+  function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    document.body.style.cursor = '';
+    const h = Math.round(getActiveGrid().getBoundingClientRect().height);
+    localStorage.setItem(PREVIEW_GRID_HEIGHT_KEY, String(h));
+  }
+
+  resizer.addEventListener('mousedown', onDown);
+  resizer.addEventListener('touchstart', onDown, { passive: false });
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchend', onUp);
+
+  // 키보드 접근성: 위/아래 화살표로 ±20px 조절
+  resizer.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const cur = getActiveGrid().getBoundingClientRect().height;
+    const step = e.shiftKey ? 60 : 20;
+    const next = Math.max(120, Math.min(getMaxHeight(), cur + (e.key === 'ArrowDown' ? step : -step)));
+    applyHeight(next);
+    localStorage.setItem(PREVIEW_GRID_HEIGHT_KEY, String(Math.round(next)));
+  });
+
+  // 더블클릭으로 기본값(자동) 복원
+  resizer.addEventListener('dblclick', () => {
+    seatGrid.style.flex = '';
+    localStorage.removeItem(PREVIEW_GRID_HEIGHT_KEY);
+  });
 }
 
 // === 반 관리 초기화 ===
@@ -3554,6 +4261,15 @@ function initStudentScreen() {
 
   const revealAllBtn = document.getElementById('btn-reveal-all');
   const swapModeBtn = document.getElementById('btn-swap-mode');
+  const lotteryToggleBtn = document.getElementById('btn-mode-lottery');
+  const lotteryPanel = document.getElementById('lottery-panel');
+  const lotterySpinBtn = document.getElementById('btn-lottery-spin');
+  const lotterySkipBtn = document.getElementById('btn-lottery-skip');
+  const lotteryEndBtn = document.getElementById('btn-lottery-end');
+  const lotteryStudentNo = document.getElementById('lottery-student-no');
+  const lotteryStudentName = document.getElementById('lottery-student-name');
+  const lotteryDoneCount = document.getElementById('lottery-done-count');
+  const lotteryTotal = document.getElementById('lottery-total');
 
   // === 시선 전환 ===
   let isTeacherView = store.load().viewPerspective === 'teacher';
@@ -3566,6 +4282,13 @@ function initStudentScreen() {
   // === 자리 교환 상태 ===
   let swapMode = false;
   let swapFirstSeat = null;
+
+  // === 추첨 모드 상태 ===
+  let lotteryMode = false;
+  let lotteryQueue = [];     // 남은 학생 이름 큐 (명단 순서)
+  let lotteryDone = 0;        // 공개된 학생 수
+  let lotteryTotalCount = 0;  // 전체 학생 수 (진행도 표시용)
+  let lotteryRunning = false; // 슬롯 진행 중
 
   function updateToggleBtn() {
     viewToggleBtn.classList.toggle('active', isTeacherView);
@@ -3637,6 +4360,9 @@ function initStudentScreen() {
         const assignment = currentAssignment;
         if (!assignment) return;
 
+        // 추첨 모드 진행 중: 좌석 클릭으로 인한 일반 공개 비활성화
+        if (lotteryMode) return;
+
         // 스왑 모드 처리: 첫 번째는 학생 있는 좌석, 두 번째는 빈 좌석도 가능
         if (swapMode) {
           if (swapFirstSeat === null && !assignment[seatIdx]) return; // 첫 선택은 학생 있는 자리만
@@ -3662,6 +4388,176 @@ function initStudentScreen() {
         }
       });
     });
+  }
+
+  // === 추첨 모드 ===
+  function findSeatByStudent(studentName) {
+    if (!currentAssignment) return -1;
+    for (const [seat, name] of Object.entries(currentAssignment)) {
+      if (name === studentName) return parseInt(seat);
+    }
+    return -1;
+  }
+
+  function updateLotteryUI() {
+    if (lotteryQueue.length === 0) {
+      lotteryStudentNo.textContent = '–';
+      lotteryStudentName.textContent = '완료!';
+      lotterySpinBtn.disabled = true;
+      lotterySkipBtn.disabled = true;
+    } else {
+      const next = lotteryQueue[0];
+      // 명단에서 위치(1-based)
+      const data = store.load();
+      const idx = data.students.indexOf(next);
+      lotteryStudentNo.textContent = idx >= 0 ? (idx + 1) : '?';
+      lotteryStudentName.textContent = next;
+      lotterySpinBtn.disabled = lotteryRunning;
+      lotterySkipBtn.disabled = lotteryRunning;
+    }
+    lotteryDoneCount.textContent = lotteryDone;
+    lotteryTotal.textContent = lotteryTotalCount;
+  }
+
+  function enterLotteryMode() {
+    if (!currentAssignment) return;
+    const data = store.load();
+    // 큐 = 명단 순서 중 아직 공개 안 된 학생
+    lotteryQueue = data.students.filter(name => {
+      const seat = findSeatByStudent(name);
+      if (seat < 0) return false; // 자리 없는 학생 제외
+      return !revealedSeats.has(seat);
+    });
+    lotteryDone = 0;
+    lotteryTotalCount = lotteryQueue.length;
+    lotteryMode = true;
+    lotteryRunning = false;
+
+    // 모든 자리 ? 카드로 가리기 (이미 공개된 건 그대로)
+    namesHidden = true;
+    container.querySelectorAll('.seat.assigned').forEach(el => {
+      const seatIdx = parseInt(el.dataset.seat);
+      if (revealedSeats.has(seatIdx)) return;
+      applyFlipCard(el);
+    });
+
+    // UI 토글
+    document.querySelector('.student-actions').classList.add('lottery-active');
+    lotteryPanel.style.display = 'flex';
+    lotteryToggleBtn.classList.add('active');
+    revealAllBtn.style.display = 'none';
+    swapModeBtn.classList.remove('active');
+    swapMode = false;
+    swapFirstSeat = null;
+    container.classList.add('lottery-on');
+    updateLotteryUI();
+    showToast('추첨 모드: 1번 학생부터 차례로 자리를 공개합니다.', 'info');
+  }
+
+  function endLotteryMode(reason) {
+    lotteryMode = false;
+    lotteryRunning = false;
+    lotteryQueue = [];
+    document.querySelector('.student-actions').classList.remove('lottery-active');
+    lotteryPanel.style.display = 'none';
+    lotteryToggleBtn.classList.remove('active');
+    container.classList.remove('lottery-on');
+    container.querySelectorAll('.seat.lottery-spotlight, .seat.lottery-dim').forEach(el => {
+      el.classList.remove('lottery-spotlight', 'lottery-dim');
+    });
+    // 미공개 좌석이 남아있다면 일반 공개 모드 복귀
+    const remainingHidden = container.querySelectorAll('.seat.hidden-name:not(.flipped)').length;
+    if (remainingHidden > 0) {
+      revealAllBtn.style.display = 'inline-flex';
+      namesHidden = true;
+    } else {
+      namesHidden = false;
+    }
+    if (reason === 'done') {
+      showToast('🎉 모든 학생이 자리를 찾았어요!', 'success');
+    }
+  }
+
+  async function lotterySpin() {
+    if (lotteryRunning || lotteryQueue.length === 0) return;
+    const studentName = lotteryQueue.shift();
+    const seatIdx = findSeatByStudent(studentName);
+    if (seatIdx < 0) {
+      // 학생 자리 못 찾음(이상 상태) — 그냥 다음으로
+      updateLotteryUI();
+      return;
+    }
+    lotteryRunning = true;
+    lotterySpinBtn.disabled = true;
+    lotterySkipBtn.disabled = true;
+
+    // 슬롯 효과: 다른 ? 카드들이 잠깐 빠르게 깜빡 → 본인 카드 spotlight
+    const allHiddenSeats = Array.from(container.querySelectorAll('.seat.hidden-name:not(.flipped)'));
+    const targetEl = container.querySelector(`.seat[data-seat="${seatIdx}"]`);
+    if (!targetEl) { lotteryRunning = false; updateLotteryUI(); return; }
+
+    // 깜빡 효과 (~1.2s)
+    const flashFrames = 14;
+    let f = 0;
+    await new Promise(resolve => {
+      const itv = setInterval(() => {
+        // 임의 좌석 강조
+        const sample = allHiddenSeats[Math.floor(Math.random() * allHiddenSeats.length)];
+        allHiddenSeats.forEach(el => el.classList.remove('lottery-blink'));
+        if (sample) sample.classList.add('lottery-blink');
+        f++;
+        if (f >= flashFrames) {
+          clearInterval(itv);
+          allHiddenSeats.forEach(el => el.classList.remove('lottery-blink'));
+          resolve();
+        }
+      }, 85);
+    });
+
+    // 다른 좌석 디밍 + 타깃 spotlight + 카드 뒤집기
+    container.querySelectorAll('.seat.assigned').forEach(el => {
+      if (el !== targetEl) el.classList.add('lottery-dim');
+    });
+    targetEl.classList.add('lottery-spotlight', 'flipped');
+    revealedSeats.add(seatIdx);
+
+    setTimeout(() => removeFlipCard(targetEl), 550);
+
+    // 잠시 보여준 뒤 다음 학생으로
+    await new Promise(r => setTimeout(r, 1800));
+    container.querySelectorAll('.seat.lottery-dim').forEach(el => el.classList.remove('lottery-dim'));
+    targetEl.classList.remove('lottery-spotlight');
+
+    lotteryDone++;
+    lotteryRunning = false;
+
+    if (lotteryQueue.length === 0) {
+      endLotteryMode('done');
+      return;
+    }
+    updateLotteryUI();
+  }
+
+  function lotterySkip() {
+    if (lotteryRunning || lotteryQueue.length === 0) return;
+    // 큐 첫 학생을 끝으로 보낸다 (결석/지각 처리)
+    const skipped = lotteryQueue.shift();
+    lotteryQueue.push(skipped);
+    showToast(`'${skipped}' 학생을 마지막 차례로 보냈습니다.`, 'info', 1800);
+    updateLotteryUI();
+  }
+
+  if (lotteryToggleBtn && lotteryPanel) {
+    lotteryToggleBtn.addEventListener('click', () => {
+      if (lotteryMode) {
+        endLotteryMode('cancel');
+      } else {
+        enterLotteryMode();
+      }
+    });
+    lotterySpinBtn.addEventListener('click', () => lotterySpin());
+    lotterySkipBtn.addEventListener('click', () => lotterySkip());
+    lotteryEndBtn.addEventListener('click', () => endLotteryMode('cancel'));
   }
 
   // 스왑 클릭 처리
@@ -3726,6 +4622,50 @@ function initStudentScreen() {
     const data = store.load();
     const assignment = currentAssignment || data.lastAssignment?.mapping || null;
     renderSeatGrid(container, data, assignment, { animate, teacherView: isTeacherView });
+  }
+
+  // 빈 상태에서 설정 파일 불러오기 단축 버튼
+  const loadConfigEmptyBtn = document.getElementById('btn-load-config-from-empty');
+  const configImportInput = document.getElementById('config-import-from-student');
+  if (loadConfigEmptyBtn && configImportInput) {
+    loadConfigEmptyBtn.addEventListener('click', () => configImportInput.click());
+    configImportInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          if (parsed.type === 'seat-result') {
+            const importData = { ...parsed };
+            delete importData.type;
+            delete importData.version;
+            delete importData.assignment;
+            delete importData.date;
+            if (store.importJSON(JSON.stringify(importData))) {
+              if (parsed.assignment) {
+                store.update({ lastAssignment: { mapping: parsed.assignment, timestamp: parsed.timestamp || Date.now() } });
+              }
+              showToast('설정을 불러왔습니다.', 'success');
+              location.reload();
+            } else {
+              showToast('잘못된 결과 파일입니다.', 'error');
+            }
+            return;
+          }
+          if (store.importJSON(reader.result)) {
+            showToast('설정을 가져왔습니다.', 'success');
+            location.reload();
+          } else {
+            showToast('잘못된 설정 파일입니다.', 'error');
+          }
+        } catch {
+          showToast('파일을 읽을 수 없습니다.', 'error');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
   }
 
   // 초기 표시: 항상 명단 순서로 배치 (교사 미리보기 결과 무시)
@@ -3805,19 +4745,20 @@ function initStudentScreen() {
       historyUpdate.assignmentHistory = history;
     }
 
-    // 모둠 히스토리 저장
+    // 모둠 히스토리 저장 (가변 크기 모둠 지원)
     const groupHistoryUpdate = {};
     if (current.layoutType === 'group') {
-      const groupSize = current.layoutSettings.groupSize || 4;
-      const totalSeats = Object.keys(result).length;
+      const layout = getLayout('group');
+      const sizes = layout.getGroupSizes(current.layoutSettings);
       const groups = [];
-      const groupCount = Math.ceil(totalSeats / groupSize);
-      for (let g = 0; g < groupCount; g++) {
+      let cursor = 0;
+      for (const sz of sizes) {
         const members = [];
-        for (let s = g * groupSize; s < Math.min((g + 1) * groupSize, totalSeats); s++) {
+        for (let s = cursor; s < cursor + sz; s++) {
           if (result[s]) members.push(result[s]);
         }
         if (members.length > 0) groups.push(members);
+        cursor += sz;
       }
       const gh = [...(current.groupHistory || [])];
       gh.push({ groups, timestamp: Date.now(), date: new Date().toISOString().slice(0, 10) });
@@ -3838,6 +4779,8 @@ function initStudentScreen() {
     swapMode = false;
     swapFirstSeat = null;
     swapModeBtn.classList.remove('active');
+    // 추첨 모드도 종료
+    if (lotteryMode) endLotteryMode('cancel');
 
     // 결과 렌더링 (애니메이션 없이) + 즉시 ? 카드 적용
     renderSeatGrid(container, current, result, { animate: false, teacherView: isTeacherView });
@@ -3863,6 +4806,7 @@ function initStudentScreen() {
     drawBtn.style.display = 'none';
     redrawBtn.style.display = 'inline-flex';
     revealAllBtn.style.display = 'inline-flex';
+    if (lotteryToggleBtn) lotteryToggleBtn.style.display = 'inline-flex';
     drawBtn.disabled = false;
     redrawBtn.disabled = false;
     drawBtn.classList.remove('loading');
@@ -4265,6 +5209,8 @@ function initStudentScreen() {
       swapFirstSeat = null;
       swapModeBtn.classList.remove('active');
       revealAllBtn.style.display = 'none';
+      if (lotteryToggleBtn) lotteryToggleBtn.style.display = 'none';
+      if (lotteryMode) endLotteryMode('cancel');
 
       store.update({ lastAssignment: null });
       const rosterOrder = createRosterOrder(d);

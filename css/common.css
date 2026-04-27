@@ -260,6 +260,47 @@ textarea {
   background: var(--danger-light);
 }
 
+/* === 분리 규칙 아이템 === */
+.sep-rule-item {
+  gap: 0.5rem;
+}
+.sep-rule-body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: 1;
+}
+.sep-student-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sep-arrow {
+  color: var(--text-light);
+  font-size: 0.9rem;
+  flex: 0 0 auto;
+}
+.sep-dist-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  background: #FFF4E6;
+  color: var(--warning);
+  border: 1px solid rgba(255,136,0,0.25);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-left: 0.2rem;
+}
+
 /* === Hint text === */
 .hint {
   font-size: 0.8rem;
@@ -301,107 +342,211 @@ textarea {
 
 .seat-grid {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   justify-content: center;
 }
 
 .seat {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
   text-align: center;
   border-radius: 10px;
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s, box-shadow 0.2s, border-color 0.2s;
+  transition: background 0.2s, box-shadow 0.2s, border-color 0.2s, transform 0.15s;
   user-select: none;
   position: relative;
-  border: 2px solid transparent;
+  /* 2겹 그림자: 책상 두께(아래 굵은 선) + 떠 있는 듯한 부드러운 그림자 */
+  box-shadow:
+    0 2px 0 rgba(15, 23, 42, 0.06),
+    0 4px 12px rgba(15, 23, 42, 0.05);
+  border: 1.5px solid var(--border);
+  overflow: hidden;
 }
 .seat:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 .seat.empty {
-  background: var(--seat-empty);
-  border-color: var(--seat-empty-border);
+  /* 빈 좌석: 흰 책상 상판 — 페이지 배경과 분리되어 또렷이 보임 */
+  background: #FFFFFF;
+  border-color: #DDE1E6;
   color: var(--text-light);
 }
 .seat.assigned {
-  background: var(--seat-assigned);
-  border-color: var(--seat-assigned-border);
+  background: linear-gradient(180deg, #F1FCF5 0%, #DBF6E4 100%);
+  border-color: #6EE7B7;
   color: var(--text);
 }
 .seat.assigned::after {
   content: '';
   position: absolute;
-  bottom: 3px;
-  right: 4px;
-  width: 10px;
-  height: 6px;
-  border-left: 2px solid var(--success);
-  border-bottom: 2px solid var(--success);
+  bottom: 6px;
+  right: 7px;
+  width: 14px;
+  height: 8px;
+  border-left: 2.5px solid var(--success);
+  border-bottom: 2.5px solid var(--success);
   transform: rotate(-45deg);
-  opacity: 0.6;
+  opacity: 0.95;
 }
 .seat.fixed {
-  background: var(--seat-fixed);
-  border-color: var(--seat-fixed-border);
+  background: linear-gradient(180deg, #FFF8E8 0%, #FFE7BD 100%);
+  border-color: #FFB347;
 }
 .seat.fixed::after {
-  content: '';
+  content: '📌';
   position: absolute;
-  bottom: 3px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
-  background: var(--accent);
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  opacity: 0.5;
+  top: 4px;
+  right: 5px;
+  font-size: 0.7em;
+  opacity: 0.9;
+  transform: rotate(15deg);
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));
 }
 .seat.highlight {
   background: var(--seat-highlight);
   border-color: var(--seat-highlight-border);
-  box-shadow: 0 0 0 3px var(--primary-glow);
+  box-shadow:
+    0 0 0 3px var(--primary-glow),
+    0 2px 0 rgba(15, 23, 42, 0.06),
+    0 4px 12px rgba(15, 23, 42, 0.05);
 }
 .seat:hover {
-  box-shadow: var(--shadow-md);
+  box-shadow:
+    0 2px 0 rgba(15, 23, 42, 0.08),
+    0 8px 20px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
   z-index: 1;
 }
-.seat .seat-number {
-  position: absolute;
-  top: 2px;
-  left: 5px;
-  font-size: 0.6rem;
-  color: var(--text-light);
-  font-weight: 400;
+/* X로 삭제된 좌석: 자리 자체는 칸을 차지하지만 시각적으로 비어 있음 */
+.seat.disabled {
+  background: transparent;
+  border: 1.5px dashed rgba(15, 23, 42, 0.12);
+  box-shadow: none;
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.5;
 }
+.seat.disabled::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 60%; height: 1.5px;
+  background: rgba(15, 23, 42, 0.18);
+  transform: translate(-50%, -50%) rotate(-22deg);
+}
+/* 빈 좌석 클릭 시 X 마커 표시 (삭제 후보) */
+.seat.pending-delete {
+  border-color: var(--danger);
+  background: var(--danger-light);
+  box-shadow:
+    0 0 0 3px rgba(240, 68, 82, 0.15),
+    0 2px 0 rgba(15, 23, 42, 0.06),
+    0 4px 12px rgba(240, 68, 82, 0.2);
+}
+.seat-delete-x {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--danger);
+  font-size: 1.4em;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: background 0.15s, transform 0.15s;
+  animation: x-pop 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.seat-delete-x:hover {
+  background: var(--danger);
+  color: #fff;
+  transform: scale(1.05);
+}
+@keyframes x-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+/* 좌석 번호는 숨김 — 이름만으로 식별 (시각 노이즈 제거) */
+.seat .seat-number {
+  display: none;
+}
+/* 이름: 좌석 전체 영역에 중앙 정렬 */
 .seat .seat-name {
-  font-size: 0.8rem;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
   word-break: keep-all;
+  padding: 2px 4px;
+  line-height: 1.1;
 }
 
 /* === Blackboard === */
 .blackboard {
-  background: #333D4B;
-  color: #D1D6DB;
+  /* 분필 가루 느낌의 부드러운 그라데이션 */
+  background:
+    radial-gradient(ellipse at 30% 30%, rgba(255,255,255,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 70%, rgba(255,255,255,0.04) 0%, transparent 50%),
+    linear-gradient(180deg, #2A3441 0%, #1F2733 100%);
+  color: #E8ECF1;
   text-align: center;
-  padding: 0.6rem;
-  border-radius: 12px;
-  font-size: 0.85rem;
-  margin-bottom: 12px;
-  letter-spacing: 3px;
-  font-weight: 500;
-  border: none;
-  box-shadow: var(--shadow-md);
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 0.92rem;
+  margin-bottom: 14px;
+  letter-spacing: 6px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.2);
   position: relative;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
+/* 칠판 양쪽 끝 분필 받이 */
+.blackboard::before,
+.blackboard::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  width: 30%;
+  height: 3px;
+  background: linear-gradient(180deg, #6B4F36 0%, #4A3728 100%);
+  border-radius: 1px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+.blackboard::before { left: 8%; }
+.blackboard::after { right: 8%; }
 
-/* === Teacher Perspective === */
+/* === Teacher Perspective (교탁) === */
 .blackboard.podium {
-  background: #4A3728;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0,0,0,0.04) 0px,
+      rgba(0,0,0,0.04) 1px,
+      transparent 1px,
+      transparent 8px
+    ),
+    linear-gradient(180deg, #6B4A32 0%, #4A3728 100%);
+  color: #F5E6D3;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.blackboard.podium::before,
+.blackboard.podium::after {
+  display: none;
 }
 
 /* View Toggle Button */
@@ -744,4 +889,47 @@ textarea:focus-visible, input:focus-visible, select:focus-visible {
   margin-bottom: 4px;
   pointer-events: none;
   user-select: none;
+}
+
+/* === Info banner (다른 PC 동기화 안내 등) === */
+.info-banner {
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.85rem 0.95rem;
+  margin: 0 0 0.8rem;
+  background: var(--primary-light);
+  border: 1px solid rgba(49, 130, 246, 0.25);
+  border-radius: var(--radius-sm);
+  align-items: flex-start;
+}
+.info-banner-icon {
+  flex: 0 0 auto;
+  color: var(--primary);
+  margin-top: 1px;
+}
+.info-banner-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.info-banner-body strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.info-banner-body p {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.45;
+}
+.info-banner-body .btn {
+  align-self: flex-start;
+}
+
+.empty-state-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
 }

@@ -3,6 +3,29 @@ import { store } from '../data/store.js';
 import { getTotalSeats } from '../data/models.js';
 import { showToast } from '../utils/toast.js';
 
+// 외부(미리보기 좌석 클릭)에서 호출하기 위한 핸들. teacher-screen이 ref를 보관함.
+export const fixedSeatPicker = {
+  /** 학생이 선택돼 있으면 즉시 해당 좌석에 고정. 없으면 안내. true 반환 시 처리됨. */
+  pickFromSeat(seatIndex) {
+    const select = document.getElementById('fixed-student-select');
+    if (!select) return false;
+    if (!select.value) {
+      showToast('먼저 고정할 학생을 선택해 주세요.', 'info', 2200);
+      return false;
+    }
+    const seatInput = document.getElementById('fixed-seat-number');
+    const addBtn = document.getElementById('btn-add-fixed');
+    if (!seatInput || !addBtn) return false;
+    seatInput.value = seatIndex + 1;
+    addBtn.click();
+    return true;
+  },
+  isStudentSelected() {
+    const select = document.getElementById('fixed-student-select');
+    return !!(select && select.value);
+  }
+};
+
 export function initFixedSeatEditor(onUpdate) {
   const select = document.getElementById('fixed-student-select');
   const seatInput = document.getElementById('fixed-seat-number');
@@ -17,7 +40,15 @@ export function initFixedSeatEditor(onUpdate) {
     // 자리 번호 최대값 설정
     const totalSeats = getTotalSeats(data);
     seatInput.max = totalSeats;
+
+    // pick mode 시각 신호 (학생 선택 여부에 따라 body 클래스)
+    document.body.classList.toggle('fixed-pick-mode', !!select.value);
   }
+
+  // 학생 선택이 바뀌면 pick-mode 클래스도 바뀌도록
+  select.addEventListener('change', () => {
+    document.body.classList.toggle('fixed-pick-mode', !!select.value);
+  });
 
   addBtn.addEventListener('click', () => {
     const data = store.load();

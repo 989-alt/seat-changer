@@ -1,5 +1,5 @@
 // 시험대형: 개별 책상 그리드
-import { manhattanDistance, escapeHTML } from './layout-engine.js';
+import { chebyshevDistance, escapeHTML } from './layout-engine.js';
 
 export const examLayout = {
   getSeatPositions(settings) {
@@ -17,8 +17,9 @@ export const examLayout = {
     return settings.columns * settings.rows;
   },
 
+  // 가로·세로·대각선 모두 동일하게 1칸 (king's move)
   distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    return chebyshevDistance(pos1, pos2);
   },
 
   render(container, settings, assignment, options = {}) {
@@ -38,8 +39,13 @@ export const examLayout = {
 
     html += `<div class="seat-grid" style="grid-template-columns: repeat(${columns}, auto);">`;
 
+    const disabled = new Set(settings.disabledSeats || []);
     let animIdx = 0;
     for (const pos of ordered) {
+      if (disabled.has(pos.index)) {
+        html += `<div class="seat disabled" data-seat="${pos.index}" aria-hidden="true"></div>`;
+        continue;
+      }
       const name = assignment ? assignment[pos.index] : null;
       const cls = name ? 'seat assigned' : 'seat empty';
       const extraCls = options.highlightSeat === pos.index ? ' highlight' : '';

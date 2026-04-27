@@ -378,16 +378,21 @@ function tryAssignment(students, positions, posMap, totalSeats, fixedSeats, sepa
   const assignedStudents = new Set();
   const availableSeats = new Set();
 
-  // 1. 고정 자리 먼저 배정
+  // 사용자가 X로 삭제한 좌석은 배정 후보에서 제외
+  const disabledSet = new Set(data.layoutSettings?.disabledSeats || []);
+
+  // 1. 고정 자리 먼저 배정 (단, 비활성 좌석으로 고정된 경우 무시)
   for (const fs of fixedSeats) {
     if (!students.includes(fs.studentName)) continue;
     if (fs.seatIndex >= totalSeats) continue;
+    if (disabledSet.has(fs.seatIndex)) continue;
     assignment[fs.seatIndex] = fs.studentName;
     assignedStudents.add(fs.studentName);
   }
 
-  // 사용 가능한 좌석 세트 (고정 좌석 제외)
+  // 사용 가능한 좌석 세트 (고정 좌석 + 비활성 좌석 제외)
   positions.forEach(p => {
+    if (disabledSet.has(p.index)) return;
     if (assignment[p.index] === undefined) availableSeats.add(p.index);
   });
 
@@ -576,14 +581,16 @@ function checkGroupConstraint(student, seatIdx, assignment, data) {
   const groupHistory = data.groupHistory || [];
   if (groupHistory.length === 0) return true;
 
-  const groupSize = data.layoutSettings.groupSize || 4;
-  const myGroupIdx = Math.floor(seatIdx / groupSize);
+  // 가변 크기 모둠 지원: groupLayout 헬퍼로 그룹 인덱스 계산
+  const myGroupIdx = groupLayout.getGroupIndex(seatIdx, data.layoutSettings);
+  const sizes = groupLayout.getGroupSizes(data.layoutSettings);
   const excludeCount = data.groupExcludeCount || 1;
   const recentHistory = groupHistory.slice(-excludeCount);
 
-  // 현재 같은 모둠에 이미 배정된 학생 찾기
-  const groupStart = myGroupIdx * groupSize;
-  const groupEnd = groupStart + groupSize;
+  // 현재 같은 모둠에 이미 배정된 학생 찾기 (가변 크기)
+  let groupStart = 0;
+  for (let i = 0; i < myGroupIdx; i++) groupStart += sizes[i] || 0;
+  const groupEnd = groupStart + (sizes[myGroupIdx] || 0);
   const currentGroupmates = [];
   for (let i = groupStart; i < groupEnd; i++) {
     if (assignment[i] && assignment[i] !== student) {

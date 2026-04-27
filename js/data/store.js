@@ -179,10 +179,21 @@ export const store = {
           columns: Math.max(1, Math.min(12, parseInt(parsed.layoutSettings?.columns) || defaults.layoutSettings.columns)),
           rows: Math.max(1, Math.min(12, parseInt(parsed.layoutSettings?.rows) || defaults.layoutSettings.rows)),
           customDesks: Array.isArray(parsed.layoutSettings?.customDesks) ? parsed.layoutSettings.customDesks.slice(0, 200) : [],
-          groupSize: Math.max(3, Math.min(8, parseInt(parsed.layoutSettings?.groupSize) || defaults.layoutSettings.groupSize)),
+          groupSize: Math.max(2, Math.min(8, parseInt(parsed.layoutSettings?.groupSize) || defaults.layoutSettings.groupSize)),
+          groupCount: Math.max(0, Math.min(20, parseInt(parsed.layoutSettings?.groupCount) || 0)),
+          groupSizes: Array.isArray(parsed.layoutSettings?.groupSizes)
+            ? parsed.layoutSettings.groupSizes
+                .map(n => Math.max(1, Math.min(8, parseInt(n) || defaults.layoutSettings.groupSize)))
+                .slice(0, 20)
+            : [],
           groupLayoutMode: parsed.layoutSettings?.groupLayoutMode || 'auto',
           groupDesks: Array.isArray(parsed.layoutSettings?.groupDesks) ? parsed.layoutSettings.groupDesks.slice(0, 200) : [],
-          groupPositions: Array.isArray(parsed.layoutSettings?.groupPositions) ? parsed.layoutSettings.groupPositions.slice(0, 50) : undefined
+          groupPositions: Array.isArray(parsed.layoutSettings?.groupPositions) ? parsed.layoutSettings.groupPositions.slice(0, 50) : undefined,
+          disabledSeats: Array.isArray(parsed.layoutSettings?.disabledSeats)
+            ? parsed.layoutSettings.disabledSeats
+                .filter(n => Number.isInteger(n) && n >= 0 && n < 1000)
+                .slice(0, 200)
+            : []
         },
         fixedSeats: Array.isArray(parsed.fixedSeats) ? parsed.fixedSeats.slice(0, 100) : [],
         separationRules: Array.isArray(parsed.separationRules) ? parsed.separationRules.slice(0, 50) : [],

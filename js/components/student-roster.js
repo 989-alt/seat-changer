@@ -19,6 +19,23 @@ export function initRoster() {
     countEl.textContent = `${data.students.length}명`;
   }
 
+  // 명단 빈 상태 안내 배너 (다른 PC 동기화 안내)
+  const emptyBanner = document.getElementById('empty-roster-banner');
+  const importShortcutBtn = document.getElementById('btn-import-shortcut');
+  function syncEmptyBanner() {
+    if (!emptyBanner) return;
+    const d = store.load();
+    emptyBanner.style.display = d.students.length === 0 ? 'flex' : 'none';
+  }
+  if (importShortcutBtn) {
+    importShortcutBtn.addEventListener('click', () => {
+      const importBtn = document.getElementById('btn-import');
+      if (importBtn) importBtn.click();
+    });
+  }
+  syncEmptyBanner();
+  window.addEventListener('roster-updated', syncEmptyBanner);
+
   // 실시간 카운트
   textarea.addEventListener('input', () => {
     const names = validateStudents(textarea.value.split('\n'));

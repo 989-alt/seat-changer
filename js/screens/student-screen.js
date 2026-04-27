@@ -56,6 +56,15 @@ export function initStudentScreen() {
 
   const revealAllBtn = document.getElementById('btn-reveal-all');
   const swapModeBtn = document.getElementById('btn-swap-mode');
+  const lotteryToggleBtn = document.getElementById('btn-mode-lottery');
+  const lotteryPanel = document.getElementById('lottery-panel');
+  const lotterySpinBtn = document.getElementById('btn-lottery-spin');
+  const lotterySkipBtn = document.getElementById('btn-lottery-skip');
+  const lotteryEndBtn = document.getElementById('btn-lottery-end');
+  const lotteryStudentNo = document.getElementById('lottery-student-no');
+  const lotteryStudentName = document.getElementById('lottery-student-name');
+  const lotteryDoneCount = document.getElementById('lottery-done-count');
+  const lotteryTotal = document.getElementById('lottery-total');
 
   // === 시선 전환 ===
   let isTeacherView = store.load().viewPerspective === 'teacher';
@@ -68,6 +77,13 @@ export function initStudentScreen() {
   // === 자리 교환 상태 ===
   let swapMode = false;
   let swapFirstSeat = null;
+
+  // === 추첨 모드 상태 ===
+  let lotteryMode = false;
+  let lotteryQueue = [];     // 남은 학생 이름 큐 (명단 순서)
+  let lotteryDone = 0;        // 공개된 학생 수
+  let lotteryTotalCount = 0;  // 전체 학생 수 (진행도 표시용)
+  let lotteryRunning = false; // 슬롯 진행 중
 
   function updateToggleBtn() {
     viewToggleBtn.classList.toggle('active', isTeacherView);
@@ -139,6 +155,9 @@ export function initStudentScreen() {
         const assignment = currentAssignment;
         if (!assignment) return;
 
+        // 추첨 모드 진행 중: 좌석 클릭으로 인한 일반 공개 비활성화
+        if (lotteryMode) return;
+
         // 스왑 모드 처리: 첫 번째는 학생 있는 좌석, 두 번째는 빈 좌석도 가능
         if (swapMode) {
           if (swapFirstSeat === null && !assignment[seatIdx]) return; // 첫 선택은 학생 있는 자리만
@@ -164,6 +183,176 @@ export function initStudentScreen() {
         }
       });
     });
+  }
+
+  // === 추첨 모드 ===
+  function findSeatByStudent(studentName) {
+    if (!currentAssignment) return -1;
+    for (const [seat, name] of Object.entries(currentAssignment)) {
+      if (name === studentName) return parseInt(seat);
+    }
+    return -1;
+  }
+
+  function updateLotteryUI() {
+    if (lotteryQueue.length === 0) {
+      lotteryStudentNo.textContent = '–';
+      lotteryStudentName.textContent = '완료!';
+      lotterySpinBtn.disabled = true;
+      lotterySkipBtn.disabled = true;
+    } else {
+      const next = lotteryQueue[0];
+      // 명단에서 위치(1-based)
+      const data = store.load();
+      const idx = data.students.indexOf(next);
+      lotteryStudentNo.textContent = idx >= 0 ? (idx + 1) : '?';
+      lotteryStudentName.textContent = next;
+      lotterySpinBtn.disabled = lotteryRunning;
+      lotterySkipBtn.disabled = lotteryRunning;
+    }
+    lotteryDoneCount.textContent = lotteryDone;
+    lotteryTotal.textContent = lotteryTotalCount;
+  }
+
+  function enterLotteryMode() {
+    if (!currentAssignment) return;
+    const data = store.load();
+    // 큐 = 명단 순서 중 아직 공개 안 된 학생
+    lotteryQueue = data.students.filter(name => {
+      const seat = findSeatByStudent(name);
+      if (seat < 0) return false; // 자리 없는 학생 제외
+      return !revealedSeats.has(seat);
+    });
+    lotteryDone = 0;
+    lotteryTotalCount = lotteryQueue.length;
+    lotteryMode = true;
+    lotteryRunning = false;
+
+    // 모든 자리 ? 카드로 가리기 (이미 공개된 건 그대로)
+    namesHidden = true;
+    container.querySelectorAll('.seat.assigned').forEach(el => {
+      const seatIdx = parseInt(el.dataset.seat);
+      if (revealedSeats.has(seatIdx)) return;
+      applyFlipCard(el);
+    });
+
+    // UI 토글
+    document.querySelector('.student-actions').classList.add('lottery-active');
+    lotteryPanel.style.display = 'flex';
+    lotteryToggleBtn.classList.add('active');
+    revealAllBtn.style.display = 'none';
+    swapModeBtn.classList.remove('active');
+    swapMode = false;
+    swapFirstSeat = null;
+    container.classList.add('lottery-on');
+    updateLotteryUI();
+    showToast('추첨 모드: 1번 학생부터 차례로 자리를 공개합니다.', 'info');
+  }
+
+  function endLotteryMode(reason) {
+    lotteryMode = false;
+    lotteryRunning = false;
+    lotteryQueue = [];
+    document.querySelector('.student-actions').classList.remove('lottery-active');
+    lotteryPanel.style.display = 'none';
+    lotteryToggleBtn.classList.remove('active');
+    container.classList.remove('lottery-on');
+    container.querySelectorAll('.seat.lottery-spotlight, .seat.lottery-dim').forEach(el => {
+      el.classList.remove('lottery-spotlight', 'lottery-dim');
+    });
+    // 미공개 좌석이 남아있다면 일반 공개 모드 복귀
+    const remainingHidden = container.querySelectorAll('.seat.hidden-name:not(.flipped)').length;
+    if (remainingHidden > 0) {
+      revealAllBtn.style.display = 'inline-flex';
+      namesHidden = true;
+    } else {
+      namesHidden = false;
+    }
+    if (reason === 'done') {
+      showToast('🎉 모든 학생이 자리를 찾았어요!', 'success');
+    }
+  }
+
+  async function lotterySpin() {
+    if (lotteryRunning || lotteryQueue.length === 0) return;
+    const studentName = lotteryQueue.shift();
+    const seatIdx = findSeatByStudent(studentName);
+    if (seatIdx < 0) {
+      // 학생 자리 못 찾음(이상 상태) — 그냥 다음으로
+      updateLotteryUI();
+      return;
+    }
+    lotteryRunning = true;
+    lotterySpinBtn.disabled = true;
+    lotterySkipBtn.disabled = true;
+
+    // 슬롯 효과: 다른 ? 카드들이 잠깐 빠르게 깜빡 → 본인 카드 spotlight
+    const allHiddenSeats = Array.from(container.querySelectorAll('.seat.hidden-name:not(.flipped)'));
+    const targetEl = container.querySelector(`.seat[data-seat="${seatIdx}"]`);
+    if (!targetEl) { lotteryRunning = false; updateLotteryUI(); return; }
+
+    // 깜빡 효과 (~1.2s)
+    const flashFrames = 14;
+    let f = 0;
+    await new Promise(resolve => {
+      const itv = setInterval(() => {
+        // 임의 좌석 강조
+        const sample = allHiddenSeats[Math.floor(Math.random() * allHiddenSeats.length)];
+        allHiddenSeats.forEach(el => el.classList.remove('lottery-blink'));
+        if (sample) sample.classList.add('lottery-blink');
+        f++;
+        if (f >= flashFrames) {
+          clearInterval(itv);
+          allHiddenSeats.forEach(el => el.classList.remove('lottery-blink'));
+          resolve();
+        }
+      }, 85);
+    });
+
+    // 다른 좌석 디밍 + 타깃 spotlight + 카드 뒤집기
+    container.querySelectorAll('.seat.assigned').forEach(el => {
+      if (el !== targetEl) el.classList.add('lottery-dim');
+    });
+    targetEl.classList.add('lottery-spotlight', 'flipped');
+    revealedSeats.add(seatIdx);
+
+    setTimeout(() => removeFlipCard(targetEl), 550);
+
+    // 잠시 보여준 뒤 다음 학생으로
+    await new Promise(r => setTimeout(r, 1800));
+    container.querySelectorAll('.seat.lottery-dim').forEach(el => el.classList.remove('lottery-dim'));
+    targetEl.classList.remove('lottery-spotlight');
+
+    lotteryDone++;
+    lotteryRunning = false;
+
+    if (lotteryQueue.length === 0) {
+      endLotteryMode('done');
+      return;
+    }
+    updateLotteryUI();
+  }
+
+  function lotterySkip() {
+    if (lotteryRunning || lotteryQueue.length === 0) return;
+    // 큐 첫 학생을 끝으로 보낸다 (결석/지각 처리)
+    const skipped = lotteryQueue.shift();
+    lotteryQueue.push(skipped);
+    showToast(`'${skipped}' 학생을 마지막 차례로 보냈습니다.`, 'info', 1800);
+    updateLotteryUI();
+  }
+
+  if (lotteryToggleBtn && lotteryPanel) {
+    lotteryToggleBtn.addEventListener('click', () => {
+      if (lotteryMode) {
+        endLotteryMode('cancel');
+      } else {
+        enterLotteryMode();
+      }
+    });
+    lotterySpinBtn.addEventListener('click', () => lotterySpin());
+    lotterySkipBtn.addEventListener('click', () => lotterySkip());
+    lotteryEndBtn.addEventListener('click', () => endLotteryMode('cancel'));
   }
 
   // 스왑 클릭 처리
@@ -228,6 +417,50 @@ export function initStudentScreen() {
     const data = store.load();
     const assignment = currentAssignment || data.lastAssignment?.mapping || null;
     renderSeatGrid(container, data, assignment, { animate, teacherView: isTeacherView });
+  }
+
+  // 빈 상태에서 설정 파일 불러오기 단축 버튼
+  const loadConfigEmptyBtn = document.getElementById('btn-load-config-from-empty');
+  const configImportInput = document.getElementById('config-import-from-student');
+  if (loadConfigEmptyBtn && configImportInput) {
+    loadConfigEmptyBtn.addEventListener('click', () => configImportInput.click());
+    configImportInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          if (parsed.type === 'seat-result') {
+            const importData = { ...parsed };
+            delete importData.type;
+            delete importData.version;
+            delete importData.assignment;
+            delete importData.date;
+            if (store.importJSON(JSON.stringify(importData))) {
+              if (parsed.assignment) {
+                store.update({ lastAssignment: { mapping: parsed.assignment, timestamp: parsed.timestamp || Date.now() } });
+              }
+              showToast('설정을 불러왔습니다.', 'success');
+              location.reload();
+            } else {
+              showToast('잘못된 결과 파일입니다.', 'error');
+            }
+            return;
+          }
+          if (store.importJSON(reader.result)) {
+            showToast('설정을 가져왔습니다.', 'success');
+            location.reload();
+          } else {
+            showToast('잘못된 설정 파일입니다.', 'error');
+          }
+        } catch {
+          showToast('파일을 읽을 수 없습니다.', 'error');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
   }
 
   // 초기 표시: 항상 명단 순서로 배치 (교사 미리보기 결과 무시)
@@ -307,19 +540,20 @@ export function initStudentScreen() {
       historyUpdate.assignmentHistory = history;
     }
 
-    // 모둠 히스토리 저장
+    // 모둠 히스토리 저장 (가변 크기 모둠 지원)
     const groupHistoryUpdate = {};
     if (current.layoutType === 'group') {
-      const groupSize = current.layoutSettings.groupSize || 4;
-      const totalSeats = Object.keys(result).length;
+      const layout = getLayout('group');
+      const sizes = layout.getGroupSizes(current.layoutSettings);
       const groups = [];
-      const groupCount = Math.ceil(totalSeats / groupSize);
-      for (let g = 0; g < groupCount; g++) {
+      let cursor = 0;
+      for (const sz of sizes) {
         const members = [];
-        for (let s = g * groupSize; s < Math.min((g + 1) * groupSize, totalSeats); s++) {
+        for (let s = cursor; s < cursor + sz; s++) {
           if (result[s]) members.push(result[s]);
         }
         if (members.length > 0) groups.push(members);
+        cursor += sz;
       }
       const gh = [...(current.groupHistory || [])];
       gh.push({ groups, timestamp: Date.now(), date: new Date().toISOString().slice(0, 10) });
@@ -340,6 +574,8 @@ export function initStudentScreen() {
     swapMode = false;
     swapFirstSeat = null;
     swapModeBtn.classList.remove('active');
+    // 추첨 모드도 종료
+    if (lotteryMode) endLotteryMode('cancel');
 
     // 결과 렌더링 (애니메이션 없이) + 즉시 ? 카드 적용
     renderSeatGrid(container, current, result, { animate: false, teacherView: isTeacherView });
@@ -365,6 +601,7 @@ export function initStudentScreen() {
     drawBtn.style.display = 'none';
     redrawBtn.style.display = 'inline-flex';
     revealAllBtn.style.display = 'inline-flex';
+    if (lotteryToggleBtn) lotteryToggleBtn.style.display = 'inline-flex';
     drawBtn.disabled = false;
     redrawBtn.disabled = false;
     drawBtn.classList.remove('loading');
@@ -767,6 +1004,8 @@ export function initStudentScreen() {
       swapFirstSeat = null;
       swapModeBtn.classList.remove('active');
       revealAllBtn.style.display = 'none';
+      if (lotteryToggleBtn) lotteryToggleBtn.style.display = 'none';
+      if (lotteryMode) endLotteryMode('cancel');
 
       store.update({ lastAssignment: null });
       const rosterOrder = createRosterOrder(d);

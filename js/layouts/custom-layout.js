@@ -1,10 +1,13 @@
 // 자유배치: DOM 기반 드래그앤드롭 + 스냅/선택/Undo
-import { manhattanDistance, escapeHTML } from './layout-engine.js';
+import { escapeHTML } from './layout-engine.js';
 
 const DESK_W = 60;
 const DESK_H = 40;
 const GRID_SIZE = 20;
 const MAX_HISTORY = 50;
+// 분리 규칙 거리 환산: 책상 폭 + 그리드 = 책상 1개 간격(픽셀)을 "1칸"으로 계산
+const CELL_PX_W = DESK_W + GRID_SIZE; // 80
+const CELL_PX_H = DESK_H + GRID_SIZE; // 60
 
 export const customLayout = {
   _canvas: null,
@@ -21,11 +24,12 @@ export const customLayout = {
   _canvasH: 400,
   _resizeBound: null,
 
-  init(canvas, desks, onUpdate) {
+  init(canvas, desks, onUpdate, onSeatPick) {
     this._canvas = canvas;
     this._ctx = canvas.getContext('2d');
     this._desks = desks.map((d, i) => ({ ...d, id: d.id ?? i }));
     this._onUpdate = onUpdate;
+    this._onSeatPick = onSeatPick || null;
     this._selected = null;
     this._history = [];
     this._redoStack = [];
@@ -33,6 +37,26 @@ export const customLayout = {
     this._fitCanvas();
     this._pushHistory();
     this._draw();
+
+    // 패널 layout이 안정화된 다음 프레임에 재측정 (init 시점에 wrap 폭이 0/작은 경우 보정)
+    requestAnimationFrame(() => {
+      if (this._canvas.clientWidth && this._canvas.clientWidth !== this._canvasW) {
+        this._fitCanvas();
+        this._draw();
+      }
+    });
+
+    // 패널 리사이즈/탭 전환 시 캔버스 폭 동기화 (영구 보정)
+    if (this._wrapResizeObserver) this._wrapResizeObserver.disconnect();
+    if (typeof ResizeObserver !== 'undefined' && this._canvas.parentNode) {
+      this._wrapResizeObserver = new ResizeObserver(() => {
+        if (this._canvas.clientWidth && this._canvas.clientWidth !== this._canvasW) {
+          this._fitCanvas();
+          this._draw();
+        }
+      });
+      this._wrapResizeObserver.observe(this._canvas.parentNode);
+    }
   },
 
   // --- Snap to grid ---
@@ -41,12 +65,14 @@ export const customLayout = {
   },
 
   // --- Fit canvas to container (no ResizeObserver) ---
+  // 캔버스를 충분히 크게 만들어 책상을 자유롭게 배치 가능.
+  // 부모(#custom-editor)가 overflow:auto이므로 캔버스가 패널보다 크면 자동 스크롤.
   _fitCanvas() {
     const canvas = this._canvas;
-    // Read CSS-laid-out width (canvas has width:100% in CSS)
     const w = canvas.clientWidth || 560;
     const dpr = window.devicePixelRatio || 1;
-    const h = Math.max(300, Math.min(500, Math.floor(w * 0.65)));
+    // 너비의 1.1배 또는 최소 760px — 책상 6~8행 충분히 들어가는 크기
+    const h = Math.max(760, Math.floor(w * 1.1));
 
     this._canvasW = w;
     this._canvasH = h;
@@ -174,13 +200,14 @@ export const customLayout = {
 
   getSeatPositions(settings) {
     const desks = settings.customDesks || [];
-    // 그리드 스냅 단위(GRID_SIZE=20)로 정규화하여
-    // 인접 판단이 정확하도록 함 (픽셀 좌표 직접 나누기 → 충돌 문제 해결)
-    const unit = GRID_SIZE || 20;
+    // 픽셀 좌표를 그대로 보존하면서, 격자가 필요한 알고리즘(성별 체커보드 등)을 위해
+    // 양자화된 row/col도 함께 제공
     return desks.map((d, i) => ({
       index: i,
-      row: Math.round(d.y / (DESK_H + unit)),
-      col: Math.round(d.x / (DESK_W + unit))
+      row: Math.round(d.y / CELL_PX_H),
+      col: Math.round(d.x / CELL_PX_W),
+      px: d.x,
+      py: d.y
     }));
   },
 
@@ -188,8 +215,16 @@ export const customLayout = {
     return (settings.customDesks || []).length;
   },
 
+  // 책상의 실제 픽셀 좌표로 chebyshev 거리 계산.
+  // 1칸 = "책상 한 개 + 그리드 갭" 만큼 떨어진 거리.
+  // 사선·자유 배치에서도 시각적 거리에 정확히 비례.
   distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    if (pos1.px != null && pos2.px != null) {
+      const dx = Math.abs(pos1.px - pos2.px) / CELL_PX_W;
+      const dy = Math.abs(pos1.py - pos2.py) / CELL_PX_H;
+      return Math.round(Math.max(dx, dy));
+    }
+    return Math.max(Math.abs(pos1.row - pos2.row), Math.abs(pos1.col - pos2.col));
   },
 
   // --- Render for preview/student (normalized coordinates) ---
@@ -415,10 +450,17 @@ export const customLayout = {
         this._draw();
         this._notify();
       } else {
-        // Click without drag = select
-        this._selected = this._selected === idx ? null : idx;
-        this._draw();
-        this._updateToolbarState();
+        // Click without drag — 고정자리 모드면 픽업, 아니면 선택 토글
+        let handledByPick = false;
+        if (typeof this._onSeatPick === 'function') {
+          // seatIndex는 desks 배열의 인덱스
+          handledByPick = this._onSeatPick(idx) === true;
+        }
+        if (!handledByPick) {
+          this._selected = this._selected === idx ? null : idx;
+          this._draw();
+          this._updateToolbarState();
+        }
       }
     }
   },

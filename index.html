@@ -65,7 +65,7 @@
         </div>
       </div>
       <div class="header-actions">
-        <button id="btn-export" class="btn btn-outline btn-sm">
+        <button id="btn-export" class="btn btn-outline btn-sm" title="현재 반의 모든 설정을 JSON 파일로 저장 (다른 PC로 옮겨 사용 가능)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -74,7 +74,7 @@
           </svg>
           설정 내보내기
         </button>
-        <button id="btn-import" class="btn btn-outline btn-sm">
+        <button id="btn-import" class="btn btn-outline btn-sm" title="다른 컴퓨터에서 저장한 설정 JSON 파일을 불러와 현재 반에 적용">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -100,6 +100,21 @@
         <!-- Step 1: 학생 명단 -->
         <section class="card" id="roster-section">
           <h2><span class="step-badge">1</span> 학생 명단 <span id="student-count" class="count-badge">0명</span></h2>
+          <div id="empty-roster-banner" class="info-banner" style="display:none">
+            <div class="info-banner-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+            </div>
+            <div class="info-banner-body">
+              <strong>다른 컴퓨터에서 설정하셨나요?</strong>
+              <p>설정은 이 컴퓨터에만 저장됩니다. 다른 PC에서 만든 설정은 JSON 파일로 가져올 수 있어요.</p>
+              <button id="btn-import-shortcut" class="btn btn-sm btn-primary">설정 파일 불러오기</button>
+            </div>
+          </div>
           <textarea id="roster-input" placeholder="한 줄에 한 명씩 입력&#10;예:&#10;김민수&#10;이지은&#10;박서준" rows="10"></textarea>
           <div class="roster-actions">
             <button id="btn-save-roster" class="btn btn-primary">명단 저장</button>
@@ -133,7 +148,8 @@
               <label>행 수: <input type="number" id="row-count" min="1" max="12" value="5"></label>
             </div>
             <div class="layout-options" id="group-options" style="display:none">
-              <label>모둠 인원: <input type="number" id="group-size" min="3" max="8" value="4">명</label>
+              <label>모둠 수: <input type="number" id="group-count" min="1" max="20" value="6">개</label>
+              <label>기본 인원: <input type="number" id="group-size" min="2" max="8" value="4">명</label>
               <button id="btn-group-reset" class="btn btn-sm btn-outline" title="드래그한 배치를 초기화">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                   stroke-linecap="round" stroke-linejoin="round">
@@ -142,7 +158,8 @@
                 </svg>
                 배치 초기화
               </button>
-              <p class="hint" style="margin:0.4rem 0 0;grid-column:1/-1">미리보기에서 모둠을 드래그하여 위치를 조정할 수 있습니다</p>
+              <div id="group-sizes-editor" class="group-sizes-editor" style="grid-column:1/-1"></div>
+              <p class="hint" style="margin:0.4rem 0 0;grid-column:1/-1">각 모둠별 인원을 따로 지정할 수 있어요. 미리보기에서 모둠을 드래그하여 위치 조정도 가능합니다.</p>
             </div>
             <div class="layout-options custom-layout-options" id="custom-options" style="display:none">
               <!-- 좌측: 간결한 도구 카드 -->
@@ -253,6 +270,7 @@
                 aria-label="자리 번호">번</label>
             <button id="btn-add-fixed" class="btn btn-sm btn-primary">고정</button>
           </div>
+          <p class="hint" style="margin:0.4rem 0 0">학생을 선택한 뒤 오른쪽 미리보기에서 자리를 직접 클릭해도 바로 고정됩니다.</p>
           <ul id="fixed-seat-list" class="rule-list"></ul>
         </section>
 
@@ -275,10 +293,6 @@
                 <button type="button" class="multi-select-toggle" id="sep-student-b-toggle">분리할 학생 선택</button>
                 <div class="multi-select-dropdown" id="sep-student-b-dropdown"></div>
               </div>
-            </div>
-            <div class="constraint-row">
-              <label>최소 <input type="number" id="sep-distance" min="1" max="5" value="2">칸 떨어뜨리기</label>
-              <button id="btn-add-sep" class="btn btn-sm btn-primary">규칙 추가</button>
             </div>
           </div>
           <ul id="sep-rule-list" class="rule-list"></ul>
@@ -353,8 +367,26 @@
           </div>
         </div>
 
+        <div class="preview-resizer" id="preview-resizer" role="separator" aria-orientation="horizontal" aria-label="그리드 영역 크기 조절" title="드래그로 그리드 영역 크기 조절" tabindex="0">
+          <span class="resizer-handle"></span>
+        </div>
+
         <div class="preview-actions">
-          <button id="btn-preview-randomize" class="btn btn-primary">미리 뽑기 테스트</button>
+          <button id="btn-preview-randomize" class="btn btn-primary btn-preview-hero">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="2" width="8" height="8" rx="1.5" />
+              <rect x="14" y="2" width="8" height="8" rx="1.5" />
+              <rect x="2" y="14" width="8" height="8" rx="1.5" />
+              <rect x="14" y="14" width="8" height="8" rx="1.5" />
+              <circle cx="6" cy="6" r="1" fill="currentColor" />
+              <circle cx="18" cy="6" r="1" fill="currentColor" />
+              <circle cx="6" cy="18" r="1" fill="currentColor" />
+              <circle cx="18" cy="18" r="1" fill="currentColor" />
+            </svg>
+            미리 뽑기 테스트
+          </button>
+          <p class="preview-actions-hint">규칙·고정 자리·성별 조건이 한 번에 적용된 결과를 미리 확인할 수 있어요.</p>
         </div>
       </main>
     </div>
@@ -373,7 +405,11 @@
           <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
         </svg>
         <p class="empty-text">아직 학생 명단이 등록되지 않았어요</p>
-        <p class="hint">교사 설정에서 명단과 배치를 먼저 설정해 주세요</p>
+        <p class="hint">교사 설정에서 명단을 입력하거나, 다른 PC에서 만든 설정 파일을 불러오세요.</p>
+        <div class="empty-state-actions">
+          <button id="btn-load-config-from-empty" class="btn btn-primary btn-sm">설정 파일 불러오기</button>
+        </div>
+        <input type="file" id="config-import-from-student" accept=".json" style="display:none">
       </div>
 
       <div class="view-toggle-wrap">
@@ -423,6 +459,28 @@
           </svg>
           전체 공개
         </button>
+        <button id="btn-mode-lottery" class="btn btn-outline" style="display:none" title="번호순으로 한 명씩 자리를 공개">
+          🎲 추첨 모드
+        </button>
+      </div>
+
+      <!-- 추첨 모드 패널 -->
+      <div id="lottery-panel" class="lottery-panel" style="display:none">
+        <div class="lottery-current">
+          <div class="lottery-label">다음 차례</div>
+          <div class="lottery-student">
+            <span class="lottery-student-num" id="lottery-student-no">1</span>번
+            <span class="lottery-student-name" id="lottery-student-name">─</span>
+          </div>
+        </div>
+        <button id="btn-lottery-spin" class="btn btn-lottery-spin">
+          🎲 자리 뽑기
+        </button>
+        <div class="lottery-meta">
+          <span class="lottery-progress"><span id="lottery-done-count">0</span> / <span id="lottery-total">0</span> 명</span>
+          <button id="btn-lottery-skip" class="btn btn-ghost btn-sm">건너뛰기</button>
+          <button id="btn-lottery-end" class="btn btn-ghost btn-sm">추첨 모드 종료</button>
+        </div>
       </div>
 
       <div class="student-toolbar" style="display:none">

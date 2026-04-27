@@ -10,8 +10,11 @@ export function createDefaultData() {
       rows: 5,
       customDesks: [],
       groupSize: 4,
+      groupCount: 0,
+      groupSizes: [],
       groupLayoutMode: 'auto',
-      groupDesks: []
+      groupDesks: [],
+      disabledSeats: []  // 사용자가 X로 삭제한 좌석 인덱스들
     },
     fixedSeats: [],
     separationRules: [],
@@ -57,18 +60,28 @@ export function validateSeparationRule(rule, students) {
 }
 
 export function getTotalSeats(data) {
+  const disabled = (data.layoutSettings.disabledSeats || []).length;
+  let raw;
   if (data.layoutType === 'custom') {
-    return data.layoutSettings.customDesks.length;
-  }
-  if (data.layoutType === 'group') {
-    if (data.layoutSettings.groupPositions && data.layoutSettings.groupPositions.length > 0) {
-      const groupSize = data.layoutSettings.groupSize || 4;
-      return data.layoutSettings.groupPositions.length * groupSize;
+    raw = data.layoutSettings.customDesks.length;
+  } else if (data.layoutType === 'group') {
+    const fallback = Math.max(2, Math.min(8, data.layoutSettings.groupSize || 4));
+    if (Array.isArray(data.layoutSettings.groupSizes) && data.layoutSettings.groupSizes.length > 0) {
+      raw = data.layoutSettings.groupSizes
+        .map(n => Math.max(1, Math.min(8, parseInt(n) || fallback)))
+        .reduce((a, b) => a + b, 0);
+    } else if (data.layoutSettings.groupCount && data.layoutSettings.groupCount > 0) {
+      raw = data.layoutSettings.groupCount * fallback;
+    } else if (data.layoutSettings.groupPositions && data.layoutSettings.groupPositions.length > 0) {
+      raw = data.layoutSettings.groupPositions.length * fallback;
+    } else {
+      const cols = data.layoutSettings.columns || 6;
+      const rows = data.layoutSettings.rows || 5;
+      raw = cols * rows;
     }
-    const groupSize = data.layoutSettings.groupSize || 4;
-    const cols = data.layoutSettings.columns || 6;
-    const rows = data.layoutSettings.rows || 5;
-    return cols * rows;
+  } else {
+    raw = data.layoutSettings.columns * data.layoutSettings.rows;
   }
-  return data.layoutSettings.columns * data.layoutSettings.rows;
+  // 사용자가 X로 비활성화한 좌석 제외 (자유배치는 책상 자체가 배열에서 빠지므로 별도 차감 불필요)
+  return data.layoutType === 'custom' ? raw : Math.max(0, raw - disabled);
 }

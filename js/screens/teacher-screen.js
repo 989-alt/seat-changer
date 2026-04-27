@@ -2,7 +2,7 @@
 import { store } from '../data/store.js';
 import { getTotalSeats } from '../data/models.js';
 import { initRoster } from '../components/student-roster.js';
-import { initFixedSeatEditor } from '../components/fixed-seat-editor.js';
+import { initFixedSeatEditor, fixedSeatPicker } from '../components/fixed-seat-editor.js';
 import { initConstraintEditor } from '../components/constraint-editor.js';
 import { renderSeatGrid } from '../components/seat-grid.js';
 import { randomizeSeats } from '../algorithm/seat-randomizer.js';
@@ -76,6 +76,66 @@ export function initTeacherScreen() {
     refreshPreview();
   });
 
+  // === 빈 좌석 X 표시 + 삭제 ===
+  function clearAllPending() {
+    seatGrid.querySelectorAll('.seat.pending-delete').forEach(s => {
+      s.classList.remove('pending-delete');
+      const xx = s.querySelector('.seat-delete-x');
+      if (xx) xx.remove();
+    });
+  }
+
+  function deleteSeat(seatIndex) {
+    const d = store.load();
+    const next = Array.from(new Set([...(d.layoutSettings.disabledSeats || []), seatIndex]));
+    const newFixed = (d.fixedSeats || []).filter(f => f.seatIndex !== seatIndex);
+    store.update({
+      layoutSettings: { ...d.layoutSettings, disabledSeats: next },
+      fixedSeats: newFixed
+    });
+    currentPreviewAssignment = null;
+    refreshPreview();
+    showToast(`${seatIndex + 1}번 자리를 삭제했습니다.`, 'info', 1800);
+  }
+
+  function handleEmptySeatClickForDelete(seatIndex) {
+    const el = seatGrid.querySelector(`.seat[data-seat="${seatIndex}"]`);
+    if (!el) return;
+    // 학생 이미 배정된 좌석/이미 삭제된 좌석은 대상 아님
+    if (el.classList.contains('assigned') || el.classList.contains('disabled')) return;
+    // 토글
+    if (el.classList.contains('pending-delete')) {
+      clearAllPending();
+      return;
+    }
+    clearAllPending();
+    el.classList.add('pending-delete');
+    const xBtn = document.createElement('button');
+    xBtn.type = 'button';
+    xBtn.className = 'seat-delete-x';
+    xBtn.setAttribute('aria-label', `${seatIndex + 1}번 자리 삭제`);
+    xBtn.textContent = '✕';
+    // X 버튼 직접 핸들러 — stopPropagation으로 좌석 클릭(토글)까지 버블 차단
+    xBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteSeat(seatIndex);
+    });
+    // mousedown도 차단 (capture 단계 좌석 핸들러 영향 방지)
+    xBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+    el.appendChild(xBtn);
+  }
+
+  // 외부 클릭 시 pending 해제 (한 번 등록)
+  let _pendingOutsideHandlerInstalled = false;
+  function attachDeletePendingHandlers() {
+    if (_pendingOutsideHandlerInstalled) return;
+    _pendingOutsideHandlerInstalled = true;
+    document.addEventListener('click', (e) => {
+      if (!seatGrid.contains(e.target)) clearAllPending();
+    });
+  }
+
   function refreshPreview() {
     const data = store.load();
     const assignment = currentPreviewAssignment || data.lastAssignment?.mapping || null;
@@ -84,15 +144,26 @@ export function initTeacherScreen() {
     customEditor.style.display = 'none';
 
     if (data.layoutType === 'custom') {
-      customEditor.style.display = 'block';
+      customEditor.style.display = 'flex';
       previewTitle.textContent = '자유배치 편집기';
     } else {
-      seatGrid.style.display = 'block';
+      seatGrid.style.display = 'flex';
       previewTitle.textContent = data.layoutType === 'group' ? '모둠 배치 (드래그로 조정 가능)' : '배치도 미리보기';
       renderSeatGrid(seatGrid, data, assignment, {
         fixedSeats: data.fixedSeats,
-        teacherView: isTeacherViewPreview
+        teacherView: isTeacherViewPreview,
+        onSeatClick: (seatIndex) => {
+          // 1) 학생이 선택돼 있으면: 고정자리 픽업 (기존 F1)
+          if (fixedSeatPicker.isStudentSelected()) {
+            fixedSeatPicker.pickFromSeat(seatIndex);
+            return;
+          }
+          // 2) 그렇지 않으면: 빈 좌석에 X(삭제 후보) 토글
+          handleEmptySeatClickForDelete(seatIndex);
+        }
       });
+      // 빈 좌석 외부 클릭 시 pending 해제 (1회 등록)
+      attachDeletePendingHandlers();
       // 모둠대형: 미리보기에서 드래그 활성화
       if (data.layoutType === 'group' && !isTeacherViewPreview) {
         enableGroupDrag(seatGrid, data.layoutSettings, (positions) => {
@@ -244,26 +315,119 @@ export function initTeacherScreen() {
 
   // === 모둠 옵션 ===
   const groupSizeInput = document.getElementById('group-size');
+  const groupCountInput = document.getElementById('group-count');
+  const groupSizesEditor = document.getElementById('group-sizes-editor');
+
+  function clampSize(n) { return Math.max(2, Math.min(8, parseInt(n) || 4)); }
+  function clampCount(n) { return Math.max(1, Math.min(20, parseInt(n) || 1)); }
+
+  // 현재 layoutSettings에서 모둠 인원 배열 도출 (없으면 count×size 균등 생성)
+  function deriveSizes(settings) {
+    const fallback = clampSize(settings.groupSize || 4);
+    if (Array.isArray(settings.groupSizes) && settings.groupSizes.length > 0) {
+      return settings.groupSizes.map(clampSize);
+    }
+    if (settings.groupCount && settings.groupCount > 0) {
+      return Array.from({ length: clampCount(settings.groupCount) }, () => fallback);
+    }
+    // 폴백: 학생 수 ÷ groupSize
+    const cols = settings.columns || 6;
+    const rows = settings.rows || 5;
+    const total = cols * rows;
+    const c = Math.max(1, Math.ceil(total / fallback));
+    return Array.from({ length: c }, () => fallback);
+  }
+
+  function renderGroupSizesEditor() {
+    if (!groupSizesEditor) return;
+    const d = store.load();
+    const sizes = deriveSizes(d.layoutSettings);
+    let html = '<div class="group-sizes-list">';
+    sizes.forEach((s, i) => {
+      html += `<label class="group-size-row"><span>${i + 1}모둠</span>
+        <input type="number" class="group-size-each" data-index="${i}" min="1" max="8" value="${s}">명</label>`;
+    });
+    html += '</div>';
+    const total = sizes.reduce((a, b) => a + b, 0);
+    html += `<div class="group-sizes-total">총 좌석 <strong>${total}</strong>석 (${sizes.length}개 모둠)</div>`;
+    groupSizesEditor.innerHTML = html;
+
+    groupSizesEditor.querySelectorAll('.group-size-each').forEach(input => {
+      input.addEventListener('input', () => {
+        clearTimeout(previewDebounce);
+        previewDebounce = setTimeout(() => {
+          const current = store.load();
+          const newSizes = deriveSizes(current.layoutSettings).slice();
+          const idx = parseInt(input.dataset.index, 10);
+          newSizes[idx] = clampSize(input.value);
+          store.update({
+            layoutSettings: {
+              ...current.layoutSettings,
+              groupSizes: newSizes,
+              groupCount: newSizes.length,
+              groupPositions: []
+            }
+          });
+          renderGroupSizesEditor();
+          refreshPreview();
+        }, 300);
+      });
+    });
+  }
 
   if (groupSizeInput) {
     groupSizeInput.value = data.layoutSettings.groupSize || 4;
+    if (groupCountInput) {
+      const initialSizes = deriveSizes(data.layoutSettings);
+      groupCountInput.value = initialSizes.length;
+    }
 
     groupSizeInput.addEventListener('input', () => {
       clearTimeout(previewDebounce);
       previewDebounce = setTimeout(() => {
         const current = store.load();
-        const groupSize = Math.max(3, Math.min(8, parseInt(groupSizeInput.value) || 4));
-        // 모둠 크기 변경 → 커스텀 위치 초기화 (자동 재배치)
+        const groupSize = clampSize(groupSizeInput.value);
+        const count = (current.layoutSettings.groupSizes || []).length
+          || current.layoutSettings.groupCount
+          || deriveSizes(current.layoutSettings).length;
+        const newSizes = Array.from({ length: count }, () => groupSize);
         store.update({
           layoutSettings: {
             ...current.layoutSettings,
             groupSize,
+            groupSizes: newSizes,
+            groupCount: count,
             groupPositions: []
           }
         });
+        renderGroupSizesEditor();
         refreshPreview();
       }, 300);
     });
+
+    if (groupCountInput) {
+      groupCountInput.addEventListener('input', () => {
+        clearTimeout(previewDebounce);
+        previewDebounce = setTimeout(() => {
+          const current = store.load();
+          const newCount = clampCount(groupCountInput.value);
+          const fallbackSize = clampSize(current.layoutSettings.groupSize || 4);
+          // 기존 모둠 인원 유지하면서 길이 조절
+          const oldSizes = deriveSizes(current.layoutSettings);
+          const newSizes = Array.from({ length: newCount }, (_, i) => oldSizes[i] != null ? oldSizes[i] : fallbackSize);
+          store.update({
+            layoutSettings: {
+              ...current.layoutSettings,
+              groupSizes: newSizes,
+              groupCount: newCount,
+              groupPositions: []
+            }
+          });
+          renderGroupSizesEditor();
+          refreshPreview();
+        }, 300);
+      });
+    }
 
     // 배치 초기화 버튼 (드래그 조정 되돌리기)
     const btnGroupReset = document.getElementById('btn-group-reset');
@@ -277,6 +441,9 @@ export function initTeacherScreen() {
         showToast('모둠 배치가 초기화되었습니다.', 'info');
       });
     }
+
+    // 초기 렌더
+    renderGroupSizesEditor();
   }
 
   // === 모둠원 중복 방지 ===
@@ -337,13 +504,24 @@ export function initTeacherScreen() {
   function initCustomCanvas() {
     const canvas = document.getElementById('custom-canvas');
     const current = store.load();
-    customLayout.init(canvas, current.layoutSettings.customDesks || [], (desks) => {
-      const d = store.load();
-      store.update({
-        layoutSettings: { ...d.layoutSettings, customDesks: desks }
-      });
-      updateCustomStatus();
-    });
+    customLayout.init(
+      canvas,
+      current.layoutSettings.customDesks || [],
+      (desks) => {
+        const d = store.load();
+        store.update({
+          layoutSettings: { ...d.layoutSettings, customDesks: desks }
+        });
+        updateCustomStatus();
+      },
+      (seatIndex) => {
+        // 학생이 선택돼 있으면 픽업, 아니면 일반 선택 동작 유지
+        if (fixedSeatPicker.isStudentSelected()) {
+          return fixedSeatPicker.pickFromSeat(seatIndex);
+        }
+        return false;
+      }
+    );
   }
 
   document.getElementById('btn-add-desk').addEventListener('click', () => {
@@ -416,7 +594,7 @@ export function initTeacherScreen() {
       currentPreviewAssignment = result;
       // 자유배치: 결과 표시를 위해 seat-grid를 보이게
       if (current.layoutType === 'custom') {
-        seatGrid.style.display = 'block';
+        seatGrid.style.display = 'flex';
       }
       renderSeatGrid(seatGrid, current, result, { fixedSeats: current.fixedSeats, animate: true, teacherView: isTeacherViewPreview });
 
@@ -549,6 +727,119 @@ export function initTeacherScreen() {
   if (data.layoutType === 'custom') {
     setTimeout(initCustomCanvas, 0);
   }
+
+  // 그리드 영역 드래그 리사이저
+  initPreviewResizer();
+}
+
+// === 그리드 영역 상하 드래그 리사이즈 ===
+const PREVIEW_GRID_HEIGHT_KEY = 'preview-grid-height';
+
+function initPreviewResizer() {
+  const resizer = document.getElementById('preview-resizer');
+  const panel = document.querySelector('.preview-panel');
+  const seatGrid = document.getElementById('teacher-seat-grid');
+  const customEditor = document.getElementById('custom-editor');
+  if (!resizer || !panel || !seatGrid || !customEditor) return;
+
+  // 리사이저는 결과 그리드(seatGrid)에만 영향. 자유배치 캔버스는 자동 분배 유지.
+  function applyHeight(h) {
+    seatGrid.style.flex = `0 0 ${h}px`;
+  }
+
+  function getMaxHeight() {
+    const panelRect = panel.getBoundingClientRect();
+    const headerEl = panel.querySelector('.preview-header-row');
+    const footerEl = panel.querySelector('.preview-actions');
+    const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+    const footerH = footerEl ? footerEl.getBoundingClientRect().height : 0;
+    const resizerH = resizer.getBoundingClientRect().height;
+    const cs = getComputedStyle(panel);
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    // 패널 안에서 그리드가 차지할 수 있는 최대 = 패널 - 다른 모든 자식 - 패널 padding - 안전 마진
+    const byPanel = panelRect.height - headerH - footerH - resizerH - padTop - padBottom - 8;
+    // 푸터가 viewport 안에 들어가도록 추가 안전망
+    const seatTop = seatGrid.getBoundingClientRect().top;
+    const byViewport = window.innerHeight - seatTop - resizerH - footerH - 16;
+    return Math.max(160, Math.min(byPanel, byViewport));
+  }
+
+  // 저장된 사용자 설정 복원 (max로 클램프)
+  function restoreSaved() {
+    const saved = parseInt(localStorage.getItem(PREVIEW_GRID_HEIGHT_KEY), 10);
+    if (!saved || saved < 120) return;
+    applyHeight(Math.min(saved, getMaxHeight()));
+  }
+  // 첫 layout이 안정화된 다음 프레임에 적용
+  requestAnimationFrame(restoreSaved);
+
+  // 윈도우 리사이즈 시 max를 넘는 부분 재클램프
+  window.addEventListener('resize', () => {
+    const cur = parseInt(seatGrid.style.flex?.match(/\d+/)?.[0]) || 0;
+    if (cur > 0) {
+      const safe = Math.min(cur, getMaxHeight());
+      if (safe !== cur) applyHeight(safe);
+    }
+  });
+
+  function getActiveGrid() {
+    return seatGrid;
+  }
+
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+
+  function onDown(e) {
+    e.preventDefault();
+    dragging = true;
+    resizer.classList.add('dragging');
+    const t = e.touches ? e.touches[0] : e;
+    startY = t.clientY;
+    startH = getActiveGrid().getBoundingClientRect().height;
+    document.body.style.cursor = 'ns-resize';
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    e.preventDefault();
+    const t = e.touches ? e.touches[0] : e;
+    const delta = t.clientY - startY;
+    const newH = Math.max(120, Math.min(getMaxHeight(), startH + delta));
+    applyHeight(newH);
+  }
+  function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    document.body.style.cursor = '';
+    const h = Math.round(getActiveGrid().getBoundingClientRect().height);
+    localStorage.setItem(PREVIEW_GRID_HEIGHT_KEY, String(h));
+  }
+
+  resizer.addEventListener('mousedown', onDown);
+  resizer.addEventListener('touchstart', onDown, { passive: false });
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchend', onUp);
+
+  // 키보드 접근성: 위/아래 화살표로 ±20px 조절
+  resizer.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const cur = getActiveGrid().getBoundingClientRect().height;
+    const step = e.shiftKey ? 60 : 20;
+    const next = Math.max(120, Math.min(getMaxHeight(), cur + (e.key === 'ArrowDown' ? step : -step)));
+    applyHeight(next);
+    localStorage.setItem(PREVIEW_GRID_HEIGHT_KEY, String(Math.round(next)));
+  });
+
+  // 더블클릭으로 기본값(자동) 복원
+  resizer.addEventListener('dblclick', () => {
+    seatGrid.style.flex = '';
+    localStorage.removeItem(PREVIEW_GRID_HEIGHT_KEY);
+  });
 }
 
 // === 반 관리 초기화 ===

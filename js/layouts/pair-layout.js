@@ -1,5 +1,5 @@
 // 짝대형: 2인 1조 그리드
-import { manhattanDistance, escapeHTML } from './layout-engine.js';
+import { chebyshevDistance, escapeHTML } from './layout-engine.js';
 
 export const pairLayout = {
   getSeatPositions(settings) {
@@ -7,7 +7,8 @@ export const pairLayout = {
     const positions = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < columns; c++) {
-        positions.push({ index: r * columns + c, row: r, col: c });
+        // pairCol: 짝꿍 묶음 단위 가로 인덱스 (책상 그룹 시각화 반영)
+        positions.push({ index: r * columns + c, row: r, col: c, pairCol: Math.floor(c / 2) });
       }
     }
     return positions;
@@ -17,8 +18,14 @@ export const pairLayout = {
     return settings.columns * settings.rows;
   },
 
+  // 짝꿍 두 좌석은 시각적으로 한 책상에 붙어 앉음 → 거리 1.
+  // 다른 짝 그룹과는 그룹 단위 chebyshev에 +1 (그룹 사이의 시각적 갭 반영).
   distance(pos1, pos2) {
-    return manhattanDistance(pos1, pos2);
+    const samePair = pos1.row === pos2.row && pos1.pairCol === pos2.pairCol;
+    if (samePair) return 1;
+    const dr = Math.abs(pos1.row - pos2.row);
+    const dpc = Math.abs((pos1.pairCol ?? Math.floor(pos1.col / 2)) - (pos2.pairCol ?? Math.floor(pos2.col / 2)));
+    return Math.max(dr, dpc) + 1;
   },
 
   render(container, settings, assignment, options = {}) {
@@ -33,6 +40,7 @@ export const pairLayout = {
     const rowOrder = tv ? Array.from({length: rows}, (_, i) => rows - 1 - i) : Array.from({length: rows}, (_, i) => i);
     const pcOrder = tv ? Array.from({length: pairCols}, (_, i) => pairCols - 1 - i) : Array.from({length: pairCols}, (_, i) => i);
 
+    const disabled = new Set(settings.disabledSeats || []);
     let animIdx = 0;
     for (const r of rowOrder) {
       for (const pc of pcOrder) {
@@ -42,6 +50,10 @@ export const pairLayout = {
           const c = pc * 2 + i;
           if (c >= columns) continue;
           const idx = r * columns + c;
+          if (disabled.has(idx)) {
+            html += `<div class="seat disabled" data-seat="${idx}" aria-hidden="true"></div>`;
+            continue;
+          }
           const name = assignment ? assignment[idx] : null;
           const cls = name ? 'seat assigned' : 'seat empty';
           const extraCls = options.highlightSeat === idx ? ' highlight' : '';
