@@ -54,7 +54,7 @@ export const ushapeLayout = {
     let animIdx = 0;
     function renderSeat(pos) {
       if (disabled.has(pos.index)) {
-        return `<div class="seat disabled" data-seat="${pos.index}" aria-hidden="true"></div>`;
+        return `<div class="seat disabled" data-seat="${pos.index}" tabindex="0" role="button" aria-label="${pos.index + 1}번 자리 (삭제됨) 되살리기"><span class="seat-restore">되살리기</span></div>`;
       }
       const name = assignment ? assignment[pos.index] : null;
       const cls = name ? 'seat assigned' : 'seat empty';

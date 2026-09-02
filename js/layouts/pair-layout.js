@@ -51,7 +51,7 @@ export const pairLayout = {
           if (c >= columns) continue;
           const idx = r * columns + c;
           if (disabled.has(idx)) {
-            html += `<div class="seat disabled" data-seat="${idx}" aria-hidden="true"></div>`;
+            html += `<div class="seat disabled" data-seat="${idx}" tabindex="0" role="button" aria-label="${idx + 1}번 자리 (삭제됨) 되살리기"><span class="seat-restore">되살리기</span></div>`;
             continue;
           }
           const name = assignment ? assignment[idx] : null;

@@ -10,6 +10,7 @@ import { customLayout } from '../layouts/custom-layout.js';
 import { enableGroupDrag } from '../layouts/group-layout.js';
 import { getLayout } from '../components/seat-grid.js';
 import { showToast, showConfirm } from '../utils/toast.js';
+import { applyDisabledSeat, removeDisabledSeat, clearDisabledSeats } from '../utils/disabled-seats.js';
 
 function verifyAssignment(result, data) {
   const layout = getLayout(data.layoutType);
@@ -87,15 +88,61 @@ export function initTeacherScreen() {
 
   function deleteSeat(seatIndex) {
     const d = store.load();
-    const next = Array.from(new Set([...(d.layoutSettings.disabledSeats || []), seatIndex]));
-    const newFixed = (d.fixedSeats || []).filter(f => f.seatIndex !== seatIndex);
+    const removedFixed = (d.fixedSeats || []).filter(f => f.seatIndex === seatIndex);
+    store.update(applyDisabledSeat(d, seatIndex));
+    currentPreviewAssignment = null;
+    refreshPreview();
+    // 확인창 대신 토스트에 '되돌리기' 버튼 — 실수로 눌러도 바로 복구 가능
+    showToast(`${seatIndex + 1}번 자리를 삭제했습니다.`, 'info', 5000, {
+      label: '되돌리기',
+      onClick: () => {
+        const cur = store.load();
+        store.update({
+          layoutSettings: { ...cur.layoutSettings, disabledSeats: removeDisabledSeat(cur.layoutSettings.disabledSeats, seatIndex) },
+          // 삭제 때 풀린 고정 자리도 함께 되돌림 (학생이 아직 명단에 있을 때만)
+          fixedSeats: [
+            ...(cur.fixedSeats || []).filter(f => f.seatIndex !== seatIndex),
+            ...removedFixed.filter(f => cur.students.includes(f.studentName))
+          ]
+        });
+        currentPreviewAssignment = null;
+        refreshPreview();
+        showToast(`${seatIndex + 1}번 자리를 되살렸습니다.`, 'success', 1800);
+      }
+    });
+  }
+
+  // 삭제된 좌석 되살리기 (점선 칸 클릭)
+  function restoreSeat(seatIndex) {
+    const d = store.load();
     store.update({
-      layoutSettings: { ...d.layoutSettings, disabledSeats: next },
-      fixedSeats: newFixed
+      layoutSettings: { ...d.layoutSettings, disabledSeats: removeDisabledSeat(d.layoutSettings.disabledSeats, seatIndex) }
     });
     currentPreviewAssignment = null;
     refreshPreview();
-    showToast(`${seatIndex + 1}번 자리를 삭제했습니다.`, 'info', 1800);
+    showToast(`${seatIndex + 1}번 자리를 되살렸습니다.`, 'success', 1800);
+  }
+
+  // 삭제한 자리 모두 복구 버튼
+  const restoreAllBtn = document.getElementById('btn-restore-all-seats');
+  function updateRestoreAllBtn() {
+    if (!restoreAllBtn) return;
+    const d = store.load();
+    const count = (d.layoutSettings.disabledSeats || []).length;
+    const applicable = d.layoutType !== 'custom' && count > 0;
+    restoreAllBtn.style.display = applicable ? '' : 'none';
+    if (applicable) restoreAllBtn.textContent = `삭제한 자리 모두 복구 (${count}개)`;
+  }
+  if (restoreAllBtn) {
+    restoreAllBtn.addEventListener('click', () => {
+      const d = store.load();
+      const count = (d.layoutSettings.disabledSeats || []).length;
+      if (count === 0) return;
+      store.update({ layoutSettings: { ...d.layoutSettings, disabledSeats: clearDisabledSeats() } });
+      currentPreviewAssignment = null;
+      refreshPreview();
+      showToast(`삭제한 자리 ${count}개를 모두 복구했습니다.`, 'success');
+    });
   }
 
   function handleEmptySeatClickForDelete(seatIndex) {
@@ -153,6 +200,12 @@ export function initTeacherScreen() {
         fixedSeats: data.fixedSeats,
         teacherView: isTeacherViewPreview,
         onSeatClick: (seatIndex) => {
+          // 0) 삭제된 좌석이면: 되살리기
+          const clicked = seatGrid.querySelector(`.seat[data-seat="${seatIndex}"]`);
+          if (clicked && clicked.classList.contains('disabled')) {
+            restoreSeat(seatIndex);
+            return;
+          }
           // 1) 학생이 선택돼 있으면: 고정자리 픽업 (기존 F1)
           if (fixedSeatPicker.isStudentSelected()) {
             fixedSeatPicker.pickFromSeat(seatIndex);
@@ -177,6 +230,7 @@ export function initTeacherScreen() {
     checkSeatWarning();
     updateCustomStatus();
     updateGroupHistorySection();
+    updateRestoreAllBtn();
   }
 
   function checkSeatWarning() {
@@ -298,15 +352,23 @@ export function initTeacherScreen() {
     clearTimeout(previewDebounce);
     previewDebounce = setTimeout(() => {
       const current = store.load();
-      const cols = parseInt(colInput.value) || 6;
-      const rows = parseInt(rowInput.value) || 5;
+      const cols = Math.max(1, Math.min(12, parseInt(colInput.value) || 6));
+      const rows = Math.max(1, Math.min(12, parseInt(rowInput.value) || 5));
+      const dimensionChanged = cols !== current.layoutSettings.columns || rows !== current.layoutSettings.rows;
+      const hadDisabled = (current.layoutSettings.disabledSeats || []).length > 0;
       store.update({
         layoutSettings: {
           ...current.layoutSettings,
-          columns: Math.max(1, Math.min(12, cols)),
-          rows: Math.max(1, Math.min(12, rows))
+          columns: cols,
+          rows: rows,
+          // 행·열이 바뀌면 좌석 번호 체계가 달라지므로 삭제 목록을 비운다
+          disabledSeats: dimensionChanged ? clearDisabledSeats() : current.layoutSettings.disabledSeats
         }
       });
+      if (dimensionChanged && hadDisabled) {
+        currentPreviewAssignment = null;
+        showToast('행·열이 바뀌어 삭제한 자리를 초기화했습니다.', 'info', 3000);
+      }
       refreshPreview();
     }, 300);
   }
@@ -583,13 +645,15 @@ export function initTeacherScreen() {
       return;
     }
 
+    const labelEl = btn.querySelector('.preview-btn-label');
+    const setLabel = (text) => { if (labelEl) labelEl.textContent = text; else btn.textContent = text; };
     btn.disabled = true;
-    btn.textContent = '배치 중...';
+    setLabel('검사 중...');
     await new Promise(r => setTimeout(r, 0));
 
     const result = await randomizeSeats(current);
     btn.disabled = false;
-    btn.textContent = '미리 뽑기 테스트';
+    setLabel(result ? '다시 검사하기' : '규칙 검사 (미리보기)');
     if (result) {
       currentPreviewAssignment = result;
       // 자유배치: 결과 표시를 위해 seat-grid를 보이게
@@ -606,7 +670,15 @@ export function initTeacherScreen() {
         if (current.fixedSeats.length > 0) checks.push(`고정 ${current.fixedSeats.length}건`);
         if (current.separationRules.length > 0) checks.push(`분리 ${current.separationRules.length}건`);
         const detail = checks.length > 0 ? ` (${checks.join(', ')} 적용됨)` : '';
-        showToast(`테스트 배치 완료!${detail}`, 'success');
+        showToast(`규칙 검사 통과${detail}. 실제 뽑기는 학생 화면에서 하세요.`, 'success', 3500);
+      }
+      // 실제 뽑기로 가는 길 안내: '학생 화면으로' 버튼 강조
+      const goBtn = document.getElementById('btn-go-student');
+      if (goBtn) {
+        goBtn.classList.remove('pulse');
+        void goBtn.offsetWidth; // 애니메이션 재시작
+        goBtn.classList.add('pulse');
+        setTimeout(() => goBtn.classList.remove('pulse'), 5000);
       }
     } else {
       showToast('자리 배치에 실패했습니다. 분리 규칙이 충돌할 수 있습니다.', 'error', 3500);

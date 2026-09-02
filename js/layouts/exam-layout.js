@@ -43,7 +43,7 @@ export const examLayout = {
     let animIdx = 0;
     for (const pos of ordered) {
       if (disabled.has(pos.index)) {
-        html += `<div class="seat disabled" data-seat="${pos.index}" aria-hidden="true"></div>`;
+        html += `<div class="seat disabled" data-seat="${pos.index}" tabindex="0" role="button" aria-label="${pos.index + 1}번 자리 (삭제됨) 되살리기"><span class="seat-restore">되살리기</span></div>`;
         continue;
       }
       const name = assignment ? assignment[pos.index] : null;

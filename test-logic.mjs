@@ -1,5 +1,6 @@
 // 자리바꾸기 로직 검증 테스트 (최적화 알고리즘 반영)
 // 알고리즘 핵심 함수들을 인라인으로 포함 (Node.js에서 DOM 없이 실행)
+import { addDisabledSeat, removeDisabledSeat, clearDisabledSeats, applyDisabledSeat } from './js/utils/disabled-seats.js';
 
 // === layout-engine ===
 function manhattanDistance(pos1, pos2) {
@@ -662,6 +663,43 @@ console.log('='.repeat(60));
   if (maxMs < 500) console.log(`  → ⚡ 성능 우수 (최대 ${maxMs.toFixed(0)}ms < 500ms)`);
   else if (maxMs < 3000) console.log(`  → ⏳ 성능 보통 (최대 ${maxMs.toFixed(0)}ms < 3000ms)`);
   else console.log(`  → 🐌 성능 미흡 (최대 ${maxMs.toFixed(0)}ms >= 3000ms)`);
+}
+
+
+// === 삭제 좌석(disabledSeats) 순수 함수 테스트 ===
+console.log(`
+${'='.repeat(60)}`);
+console.log('삭제 좌석 복구 로직 테스트');
+console.log('='.repeat(60));
+function check(name, cond) {
+  totalTests++;
+  if (cond) console.log(`  ✅ ${name}`);
+  else { totalFails++; console.log(`  ❌ ${name}`); }
+}
+{
+  const a = addDisabledSeat([1, 3], 5);
+  check('addDisabledSeat: 새 인덱스 추가', JSON.stringify(a) === '[1,3,5]');
+  check('addDisabledSeat: 중복 추가 안 함', JSON.stringify(addDisabledSeat([1, 3], 3)) === '[1,3]');
+  const orig = [1, 3];
+  addDisabledSeat(orig, 9);
+  check('addDisabledSeat: 원본 배열 불변', JSON.stringify(orig) === '[1,3]');
+  check('addDisabledSeat: undefined 입력 허용', JSON.stringify(addDisabledSeat(undefined, 2)) === '[2]');
+
+  check('removeDisabledSeat: 인덱스 제거', JSON.stringify(removeDisabledSeat([1, 3, 5], 3)) === '[1,5]');
+  check('removeDisabledSeat: 없는 인덱스는 그대로', JSON.stringify(removeDisabledSeat([1, 3], 7)) === '[1,3]');
+  check('removeDisabledSeat: undefined 입력 허용', JSON.stringify(removeDisabledSeat(undefined, 7)) === '[]');
+
+  check('clearDisabledSeats: 빈 배열 반환', JSON.stringify(clearDisabledSeats([1, 2])) === '[]');
+
+  const data = {
+    layoutSettings: { columns: 6, rows: 5, disabledSeats: [2] },
+    fixedSeats: [{ studentName: '김하람', seatIndex: 4 }, { studentName: '이도윤', seatIndex: 2 }]
+  };
+  const after = applyDisabledSeat(data, 4);
+  check('applyDisabledSeat: disabledSeats에 추가', JSON.stringify(after.layoutSettings.disabledSeats) === '[2,4]');
+  check('applyDisabledSeat: 해당 좌석 고정 해제', after.fixedSeats.length === 1 && after.fixedSeats[0].seatIndex === 2);
+  check('applyDisabledSeat: 다른 layoutSettings 보존', after.layoutSettings.columns === 6 && after.layoutSettings.rows === 5);
+  check('applyDisabledSeat: 원본 data 불변', data.layoutSettings.disabledSeats.length === 1 && data.fixedSeats.length === 2);
 }
 
 // === 최종 요약 ===

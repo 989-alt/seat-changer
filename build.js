@@ -10,6 +10,7 @@ const files = [
   'data/models.js',
   'data/store.js',
   'utils/toast.js',
+  'utils/disabled-seats.js',
   'utils/roster-parser.js',
   'layouts/layout-engine.js',
   'layouts/exam-layout.js',

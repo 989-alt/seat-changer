@@ -84,7 +84,7 @@
           설정 가져오기
         </button>
         <input type="file" id="import-file" accept=".json" style="display:none">
-        <a href="#student" class="btn btn-accent btn-sm">
+        <a href="#student" id="btn-go-student" class="btn btn-accent btn-sm">
           학생 화면으로
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
@@ -256,7 +256,10 @@
           </div>
           <!-- 학생 수 / 좌석 수 불일치 경고 -->
           <div id="seat-warning" class="warning-banner" style="display:none"></div>
-          <button id="btn-save-layout" class="btn btn-primary">배치 저장</button>
+          <div class="layout-save-row">
+            <button id="btn-save-layout" class="btn btn-primary">배치 저장</button>
+            <button id="btn-restore-all-seats" class="btn btn-outline" style="display:none" type="button">삭제한 자리 모두 복구</button>
+          </div>
         </section>
 
         <!-- Step 3: 고정 자리 -->
@@ -384,9 +387,9 @@
               <circle cx="6" cy="18" r="1" fill="currentColor" />
               <circle cx="18" cy="18" r="1" fill="currentColor" />
             </svg>
-            미리 뽑기 테스트
+            <span class="preview-btn-label">규칙 검사 (미리보기)</span>
           </button>
-          <p class="preview-actions-hint">규칙·고정 자리·성별 조건이 한 번에 적용된 결과를 미리 확인할 수 있어요.</p>
+          <p class="preview-actions-hint">여기서는 규칙·고정 자리·성별 조건이 잘 적용되는지만 확인합니다. 학생들 앞에서 실제로 뽑는 건 오른쪽 위 '학생 화면으로' 버튼에서 합니다.</p>
         </div>
       </main>
     </div>

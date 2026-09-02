@@ -5,8 +5,9 @@
  * @param {string} message
  * @param {'success'|'error'|'warning'|'info'} type
  * @param {number} duration ms
+ * @param {{ label: string, onClick: Function }|null} action 선택: 토스트 안에 표시할 버튼 (예: 되돌리기)
  */
-export function showToast(message, type = 'success', duration = 2500) {
+export function showToast(message, type = 'success', duration = 2500, action = null) {
   const container = document.getElementById('toast-container');
   if (!container) return;
 
@@ -22,15 +23,32 @@ export function showToast(message, type = 'success', duration = 2500) {
   toast.appendChild(iconSpan);
   toast.appendChild(msgSpan);
 
+  let dismissed = false;
+  function dismiss() {
+    if (dismissed) return;
+    dismissed = true;
+    toast.classList.remove('show');
+    toast.addEventListener('transitionend', () => toast.remove());
+  }
+
+  if (action && typeof action.onClick === 'function') {
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'toast-action';
+    actionBtn.textContent = action.label || '되돌리기';
+    actionBtn.addEventListener('click', () => {
+      action.onClick();
+      dismiss();
+    });
+    toast.appendChild(actionBtn);
+  }
+
   container.appendChild(toast);
   requestAnimationFrame(() => {
     requestAnimationFrame(() => toast.classList.add('show'));
   });
 
-  setTimeout(() => {
-    toast.classList.remove('show');
-    toast.addEventListener('transitionend', () => toast.remove());
-  }, duration);
+  setTimeout(dismiss, duration);
 }
 
 /**

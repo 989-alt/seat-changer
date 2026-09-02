@@ -53,7 +53,8 @@
 }
 
 /* Roster Actions */
-.roster-actions {
+.roster-actions,
+.layout-save-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
