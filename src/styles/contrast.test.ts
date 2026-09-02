@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { WOOD_TEXT } from '../components/cork/WoodButton';
+import { BOARD_BG } from '../components/cork/ChalkBoard';
 
 const css = readFileSync(resolve(__dirname, 'globals.css'), 'utf8');
 
@@ -95,6 +96,12 @@ describe('mute 텍스트 대비 (NoteSeat 좌석 번호 색상 선택 근거, Ta
 
   it('mute/paper-3 는 4.5:1 미만이다 (좌석 번호에 mute 사용 금지 근거)', () => {
     expect(contrastRatio(paper3, mute)).toBeLessThan(4.5);
+  });
+});
+
+describe('ChalkBoard 배경 대비 (R34)', () => {
+  it('BOARD_BG(칠판 배경)/chalk-text 는 4.5:1 이상이다', () => {
+    expect(contrastRatio(chalkText, BOARD_BG)).toBeGreaterThanOrEqual(4.5);
   });
 });
 

@@ -11,6 +11,7 @@
    *   cork / ink             (5.93:1)
    *   cork-dark / paper      (6.63:1)
    *   cork-dark / chalk-text (6.02:1)
+   *   #26443C(칠판 배경) / chalk-text (9.33:1) — ChalkBoard.tsx BOARD_BG, R34
    * 금지 조합:
    *   cork / paper (2.57:1) — 4.5:1 미만, cork 배경에는 paper 텍스트 금지(ink만 사용)
    */
