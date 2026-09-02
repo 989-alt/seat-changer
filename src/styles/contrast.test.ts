@@ -62,6 +62,7 @@ const paper3 = extractToken('--color-paper-3');
 const chalk = extractToken('--color-chalk');
 const chalkText = extractToken('--color-chalk-text');
 const ink = extractToken('--color-ink');
+const mute = extractToken('--color-mute');
 
 describe('WCAG 텍스트 대비 (4.5:1 이상)', () => {
   it.each([
@@ -78,6 +79,22 @@ describe('WCAG 텍스트 대비 (4.5:1 이상)', () => {
 
   it('cork/paper 조합은 4.5:1 미만이다 (텍스트 사용 금지 근거)', () => {
     expect(contrastRatio(cork, paper)).toBeLessThan(4.5);
+  });
+});
+
+describe('mute 텍스트 대비 (NoteSeat 좌석 번호 색상 선택 근거, Task 6)', () => {
+  // mute는 순수 paper 배경에서는 4.5:1을 만족하지만, NoteSeat이 쓰는 paper-2/paper-3
+  // 메모지 변주에서는 미달이라 좌석 번호에는 mute 대신 ink를 사용한다.
+  it('mute/paper 는 4.5:1 이상이다', () => {
+    expect(contrastRatio(paper, mute)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('mute/paper-2 는 4.5:1 미만이다 (좌석 번호에 mute 사용 금지 근거)', () => {
+    expect(contrastRatio(paper2, mute)).toBeLessThan(4.5);
+  });
+
+  it('mute/paper-3 는 4.5:1 미만이다 (좌석 번호에 mute 사용 금지 근거)', () => {
+    expect(contrastRatio(paper3, mute)).toBeLessThan(4.5);
   });
 });
 
