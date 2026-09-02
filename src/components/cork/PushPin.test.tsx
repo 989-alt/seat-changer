@@ -12,4 +12,8 @@ describe('PushPin', () => {
     const { container } = render(<PushPin color="gold" />);
     expect(container.querySelector('[data-cork="pushpin"]')!.className).toContain('pin-gold');
   });
+  it('클릭을 가로채지 않는다', () => {
+    const { container } = render(<PushPin />);
+    expect(container.querySelector('[data-cork="pushpin"]')!.className).toContain('pointer-events-none');
+  });
 });
