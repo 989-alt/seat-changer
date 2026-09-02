@@ -76,4 +76,22 @@ describe('scan-emoji', () => {
     expect(isImageFile('icon.' + 'svg')).toBe(true);
     expect(isImageFile('App.' + 'tsx')).toBe(false);
   });
+
+  it('백슬래시 홀짝에 따라 이스케이프 여부를 정확히 판정한다', () => {
+    // 백슬래시는 String.fromCharCode(92)로 런타임에 만들어 이 테스트 파일 자체가 스캔에 걸리지 않게 한다.
+    const bs = String.fromCharCode(92);
+    const odd1 = bs + 'u2705'; // 이스케이프 1개 -> 실제 이스케이프
+    const even2 = bs + bs + 'u2705'; // 이스케이프된 백슬래시 + 문자열 "u2705" -> 이스케이프 아님
+    const odd3 = bs + bs + bs + 'u2705'; // 이스케이프된 백슬래시 + 이스케이프 1개 -> 실제 이스케이프
+    const oddAllowed = bs + 'u2713'; // 이스케이프가 풀리면 허용 기호 ✓
+
+    expect(findViolations([{ path: 'a.tsx', content: `const a = "${odd1}";` }])).toEqual([
+      { path: 'a.tsx', line: 1, kind: 'emoji' },
+    ]);
+    expect(findViolations([{ path: 'a.tsx', content: `const b = "${even2}";` }])).toEqual([]);
+    expect(findViolations([{ path: 'a.tsx', content: `const c = "${odd3}";` }])).toEqual([
+      { path: 'a.tsx', line: 1, kind: 'emoji' },
+    ]);
+    expect(findViolations([{ path: 'a.tsx', content: `const d = "${oddAllowed}";` }])).toEqual([]);
+  });
 });

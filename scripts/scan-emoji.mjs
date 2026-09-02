@@ -1,4 +1,6 @@
 // G4 게이트: src/ 안의 이모지 문자, 이미지 경로 참조, 이미지 파일 자체를 찾는다.
+// 보장 범위: 정적 텍스트 기준 검사이며 문자열 결합·보간으로 만든 경로는 잡지 못한다.
+// 런타임 이미지 요청은 G7(Playwright 네트워크 탭)이 검사한다.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,9 +15,9 @@ const IMAGE_IMPORT_RE = /\.(png|jpe?g|gif|svg|webp|avif|bmp|ico)(?=['"`)?#\s]|$)
 const IMAGE_FILE_RE = /\.(png|jpe?g|gif|svg|webp|avif|bmp|ico)$/i;
 
 function decodeEscapes(line) {
-  return line
-    .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  return line.replace(/(\\+)u(?:\{([0-9a-fA-F]{1,6})\}|([0-9a-fA-F]{4}))/g, (m, slashes, braced, plain) =>
+    slashes.length % 2 === 0 ? m : slashes.slice(0, -1) + String.fromCodePoint(parseInt(braced ?? plain, 16)),
+  );
 }
 
 function hasEmoji(line) {

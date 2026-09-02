@@ -36,6 +36,54 @@ describe('eslint core 경계 규칙', () => {
     expect(msgs.length).toBeGreaterThan(0);
   });
 
+  it("@/components 배럴 import(하위 경로 없이)도 core에서 막는다", async () => {
+    const code = `import x from '@/components';
+export const y = x;
+`;
+    const msgs = await lintCore(code, 'src/core/x.ts');
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it("@/store 배럴 import를 core에서 막는다", async () => {
+    const code = `import x from '@/store';
+export const y = x;
+`;
+    const msgs = await lintCore(code, 'src/core/x.ts');
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it("@/pages 배럴 import를 core에서 막는다", async () => {
+    const code = `import x from '@/pages';
+export const y = x;
+`;
+    const msgs = await lintCore(code, 'src/core/x.ts');
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it('../../components 배럴 상대경로 import를 core에서 막는다', async () => {
+    const code = `import x from '../../components';
+export const y = x;
+`;
+    const msgs = await lintCore(code, 'src/core/x.ts');
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it('../store 배럴 상대경로 import를 core에서 막는다', async () => {
+    const code = `import x from '../store';
+export const y = x;
+`;
+    const msgs = await lintCore(code, 'src/core/x.ts');
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it('./pages 배럴 상대경로 import를 core에서 막는다', async () => {
+    const code = `import x from './pages';
+export const y = x;
+`;
+    const msgs = await lintCore(code, 'src/core/x.ts');
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
   it('동적 import를 core에서 막는다', async () => {
     const msgs = await lintCore("export const m = () => import('react');\n", 'src/core/x.ts');
     expect(msgs.length).toBeGreaterThan(0);
