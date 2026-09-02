@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { WOOD_TEXT } from '../components/cork/WoodButton';
 
 const css = readFileSync(resolve(__dirname, 'globals.css'), 'utf8');
 
@@ -10,6 +11,15 @@ function extractToken(name: string): string {
   const value = m?.[1];
   if (!value) throw new Error(`token not found in globals.css: ${name}`);
   return value;
+}
+
+/** globals.css의 `@utility texture-wood` 블록에서 linear-gradient의 두 stop(light→dark)을 추출한다. */
+function extractWoodStops(): { light: string; dark: string } {
+  const block = css.match(/@utility texture-wood \{[^}]*\}/);
+  if (!block) throw new Error('texture-wood block not found in globals.css');
+  const m = block[0].match(/linear-gradient\(#([0-9A-Fa-f]{6}),\s*#([0-9A-Fa-f]{6})\)/);
+  if (!m) throw new Error('texture-wood block에서 linear-gradient stop을 찾지 못했다');
+  return { light: `#${m[1]}`, dark: `#${m[2]}` };
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -82,15 +92,19 @@ describe('포커스 링 대비 (비텍스트 요소, 3:1 이상)', () => {
   });
 });
 
-describe('WoodButton danger 텍스트 대비 (texture-wood 그라디언트, R20)', () => {
-  // texture-wood: linear-gradient(#B8813F, #8B5A2B) — light stop → dark stop.
-  // 텍스트 색은 #FFF3D6. lg(22px bold)는 large-text 기준 3:1, md(15px bold)는
-  // large-text 기준에 못 미치므로 더 어두운(대비가 낮은) dark stop 기준으로 4.5:1을 요구한다.
-  it('#FFF3D6 / #B8813F (light stop) 는 3.0:1 이상이다 (lg, large bold text)', () => {
-    expect(contrastRatio('#FFF3D6', '#B8813F')).toBeGreaterThanOrEqual(3.0);
-  });
+describe('WoodButton danger 텍스트 대비 (texture-wood 그라디언트, R28)', () => {
+  // R28: md(15px bold ≈ 11.25pt)는 WCAG large-text 기준(14pt bold ≈ 18.67px)에 못
+  // 미치므로 그라디언트 전 구간(light stop 포함)에서 4.5:1을 만족해야 한다. lg(22px
+  // bold)는 large-text 기준인 3:1로 충분하다. stop 값은 globals.css를 정규식으로 읽어
+  // CSS가 바뀌면 이 테스트도 따라가도록 한다(하드코딩 금지).
+  const { light, dark } = extractWoodStops();
 
-  it('#FFF3D6 / #8B5A2B (dark stop) 는 4.5:1 이상이다 (md, 15px bold)', () => {
-    expect(contrastRatio('#FFF3D6', '#8B5A2B')).toBeGreaterThanOrEqual(4.5);
+  it.each([
+    ['md', 4.5, 'light stop', light],
+    ['md', 4.5, 'dark stop', dark],
+    ['lg', 3.0, 'light stop', light],
+    ['lg', 3.0, 'dark stop', dark],
+  ] as const)('%s (%s:1 이상) — %s(%s) 대비가 기준을 만족한다', (_size, threshold, _stopLabel, stop) => {
+    expect(contrastRatio(WOOD_TEXT, stop)).toBeGreaterThanOrEqual(threshold);
   });
 });

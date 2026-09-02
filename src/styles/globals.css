@@ -61,9 +61,15 @@
   background-image: repeating-linear-gradient(transparent 0 26px, rgba(46,90,78,0.14) 26px 27px);
 }
 
-/* 나무 프레임 */
+/*
+ * 나무 프레임 (WoodButton danger 배경, R28)
+ * 텍스트 #FFF3D6 기준 대비: light stop #916532 4.63:1 / dark stop #8B5A2B 5.30:1.
+ * md(15px bold)는 WCAG large-text 기준(14pt bold ≈ 18.67px)에 못 미쳐 그라디언트
+ * 전 구간에서 4.5:1이 필요하다 — 이전 light stop #B8813F(3.05:1)는 이를 만족하지
+ * 못해 #916532로 낮췄다(4.6:1 이상을 만족하는 가장 밝은 값). 검증: src/styles/contrast.test.ts.
+ */
 @utility texture-wood {
-  background-image: linear-gradient(#B8813F, #8B5A2B);
+  background-image: linear-gradient(#916532, #8B5A2B);
   border-color: #5E3A1B;
 }
 

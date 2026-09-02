@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { WoodButton } from './WoodButton';
+import { WoodButton, WOOD_TEXT } from './WoodButton';
 
 describe('WoodButton', () => {
   it('클릭이 전달된다', async () => {
@@ -18,5 +18,9 @@ describe('WoodButton', () => {
   it('disabled면 aria-disabled', () => {
     render(<WoodButton disabled>저장</WoodButton>);
     expect(screen.getByRole('button')).toBeDisabled();
+  });
+  it('danger 버튼 텍스트 색은 WOOD_TEXT 상수와 일치한다 (R28 드리프트 방지)', () => {
+    render(<WoodButton variant="danger">자리 뽑기</WoodButton>);
+    expect(screen.getByRole('button').className).toContain(`text-[${WOOD_TEXT}]`);
   });
 });

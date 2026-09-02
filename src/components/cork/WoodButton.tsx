@@ -1,5 +1,13 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
+/**
+ * danger 버튼(texture-wood 배경) 텍스트 색. VARIANT.danger의 `text-[#FFF3D6]`는
+ * Tailwind 임의값 클래스라 이 상수로 문자열 보간할 수 없어 리터럴로 유지하지만,
+ * 두 값이 어긋나지 않도록 contrast.test.ts와 WoodButton.test.tsx가 이 상수를
+ * 임포트해 리터럴과 대조한다(R28).
+ */
+export const WOOD_TEXT = '#FFF3D6';
+
 const VARIANT = {
   primary: 'bg-chalk text-chalk-text border-[#1c3a32]',
   secondary: 'bg-paper-2 text-ink border-cork-dark',
