@@ -1,1 +1,59 @@
 @import "tailwindcss";
+
+@theme {
+  --color-cork: #C8955A;
+  --color-cork-dark: #7B5130;
+  --color-paper: #FFFBF0;
+  --color-paper-2: #FDE6B8;
+  --color-paper-3: #E8F1D9;
+  --color-chalk: #2E5A4E;
+  --color-chalk-text: #F3F0E6;
+  --color-ink: #2A211B;
+  --color-mute: #7A6A5C;
+  --color-apple: #D2553D;
+  --color-gold: #E4B04A;
+
+  --font-hand: "Gaegu", "Noto Sans KR", cursive;
+  --font-body: "Noto Sans KR", system-ui, sans-serif;
+
+  --radius-note: 3px;
+  --shadow-note: 0 4px 8px rgba(0, 0, 0, 0.30);
+  --shadow-card: 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+@layer base {
+  html { font-family: var(--font-body); color: var(--color-ink); }
+  body { margin: 0; background: var(--color-cork); }
+  :focus-visible { outline: 3px solid var(--color-gold); outline-offset: 2px; }
+}
+
+@layer utilities {
+  /* 코르크판: 세 겹의 점 그라디언트 */
+  .texture-cork {
+    background-color: var(--color-cork);
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.08) 0, transparent 3px),
+      radial-gradient(circle at 70% 60%, rgba(0,0,0,0.08) 0, transparent 3px),
+      radial-gradient(circle at 40% 80%, rgba(255,255,255,0.06) 0, transparent 2px);
+    background-size: 23px 23px, 31px 31px, 17px 17px;
+  }
+  /* 줄 노트 */
+  .texture-paper-lines {
+    background-color: var(--color-paper);
+    background-image: repeating-linear-gradient(transparent 0 26px, rgba(46,90,78,0.14) 26px 27px);
+  }
+  /* 나무 프레임 */
+  .texture-wood {
+    background-image: linear-gradient(#B8813F, #8B5A2B);
+    border-color: #5E3A1B;
+  }
+  .tilt-l { transform: rotate(-1deg); }
+  .tilt-r { transform: rotate(0.8deg); }
+  .tilt-note-a { transform: rotate(-1.5deg); }
+  .tilt-note-b { transform: rotate(1.2deg); }
+  .tilt-note-c { transform: rotate(-0.6deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
