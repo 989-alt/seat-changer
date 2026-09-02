@@ -30,10 +30,7 @@ function walk(dir, acc = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, acc);
-    // *.test.* 픽스처는 위반 패턴을 문자열로 담고 있어 CLI 스캔 대상에서 제외한다.
-    else if (/\.(tsx?|css|html|mjs)$/.test(name) && !/\.test\.(tsx?|mjs)$/.test(name)) {
-      acc.push({ path: p, content: readFileSync(p, 'utf8') });
-    }
+    else if (/\.(tsx?|css|html|mjs)$/.test(name)) acc.push({ path: p, content: readFileSync(p, 'utf8') });
   }
   return acc;
 }
