@@ -1,6 +1,19 @@
 @import "tailwindcss";
 
 @theme {
+  /*
+   * 대비 규칙 (WCAG 2.1 AA, 텍스트 4.5:1 이상 / 비텍스트(포커스 링 등) 3:1 이상)
+   * 허용 조합 (텍스트):
+   *   paper / ink            (15.25:1)
+   *   paper-2 / ink          (12.91:1)
+   *   paper-3 / ink          (13.53:1)
+   *   chalk / chalk-text     (6.85:1)
+   *   cork / ink             (5.93:1)
+   *   cork-dark / paper      (6.63:1)
+   *   cork-dark / chalk-text (6.02:1)
+   * 금지 조합:
+   *   cork / paper (2.57:1) — 4.5:1 미만, cork 배경에는 paper 텍스트 금지(ink만 사용)
+   */
   --color-cork: #C8955A;
   --color-cork-dark: #7B5130;
   --color-paper: #FFFBF0;
@@ -24,36 +37,42 @@
 @layer base {
   html { font-family: var(--font-body); color: var(--color-ink); }
   body { margin: 0; background: var(--color-cork); }
-  :focus-visible { outline: 3px solid var(--color-gold); outline-offset: 2px; }
+  /* ink 외곽선 + paper 헤일로 2색 링: cork/paper/chalk 어느 배경 위에서도 최소 한쪽 색이 3:1 이상으로 보인다 */
+  :focus-visible {
+    outline: 3px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 6px var(--color-paper);
+  }
 }
 
-@layer utilities {
-  /* 코르크판: 세 겹의 점 그라디언트 */
-  .texture-cork {
-    background-color: var(--color-cork);
-    background-image:
-      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.08) 0, transparent 3px),
-      radial-gradient(circle at 70% 60%, rgba(0,0,0,0.08) 0, transparent 3px),
-      radial-gradient(circle at 40% 80%, rgba(255,255,255,0.06) 0, transparent 2px);
-    background-size: 23px 23px, 31px 31px, 17px 17px;
-  }
-  /* 줄 노트 */
-  .texture-paper-lines {
-    background-color: var(--color-paper);
-    background-image: repeating-linear-gradient(transparent 0 26px, rgba(46,90,78,0.14) 26px 27px);
-  }
-  /* 나무 프레임 */
-  .texture-wood {
-    background-image: linear-gradient(#B8813F, #8B5A2B);
-    border-color: #5E3A1B;
-  }
-  .tilt-l { transform: rotate(-1deg); }
-  .tilt-r { transform: rotate(0.8deg); }
-  .tilt-note-a { transform: rotate(-1.5deg); }
-  .tilt-note-b { transform: rotate(1.2deg); }
-  .tilt-note-c { transform: rotate(-0.6deg); }
+/* 코르크판: 세 겹의 점 그라디언트 */
+@utility texture-cork {
+  background-color: var(--color-cork);
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.08) 0, transparent 3px),
+    radial-gradient(circle at 70% 60%, rgba(0,0,0,0.08) 0, transparent 3px),
+    radial-gradient(circle at 40% 80%, rgba(255,255,255,0.06) 0, transparent 2px);
+  background-size: 23px 23px, 31px 31px, 17px 17px;
 }
+
+/* 줄 노트 */
+@utility texture-paper-lines {
+  background-color: var(--color-paper);
+  background-image: repeating-linear-gradient(transparent 0 26px, rgba(46,90,78,0.14) 26px 27px);
+}
+
+/* 나무 프레임 */
+@utility texture-wood {
+  background-image: linear-gradient(#B8813F, #8B5A2B);
+  border-color: #5E3A1B;
+}
+
+@utility tilt-l { transform: rotate(-1deg); }
+@utility tilt-r { transform: rotate(0.8deg); }
+@utility tilt-note-a { transform: rotate(-1.5deg); }
+@utility tilt-note-b { transform: rotate(1.2deg); }
+@utility tilt-note-c { transform: rotate(-0.6deg); }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
