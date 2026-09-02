@@ -26,6 +26,21 @@ describe('NoteSeat', () => {
     await userEvent.click(b);
     expect(onRestore).toHaveBeenCalledTimes(1);
   });
+
+  // R38: onRestore가 없으면 되살릴 수 없으므로 "되살리기"를 약속하는 문구를 쓰지 않는다.
+  it('R38: onRestore가 있는 삭제된 자리는 되살리기 문구를 쓰고 활성 상태다', () => {
+    render(<NoteSeat index={9} state="disabled" onRestore={() => {}} />);
+    const b = screen.getByRole('button', { name: '10번 자리 되살리기' });
+    expect(b).toHaveTextContent('되살리기');
+    expect(b).toBeEnabled();
+  });
+
+  it('R38: onRestore가 없는 삭제된 자리는 (삭제됨) 문구를 쓰고 disabled 상태다', () => {
+    render(<NoteSeat index={9} state="disabled" />);
+    const b = screen.getByRole('button', { name: '10번 자리 (삭제됨)' });
+    expect(b).toHaveTextContent('삭제된 자리');
+    expect(b).toBeDisabled();
+  });
   it('일반 클릭', async () => {
     const onClick = vi.fn();
     render(<NoteSeat index={1} state="empty" onClick={onClick} />);

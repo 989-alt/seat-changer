@@ -17,9 +17,10 @@ type Props = {
   highlight?: boolean;
 };
 
-export function seatLabel(index: number, state: NoteSeatState, name?: string): string {
+export function seatLabel(index: number, state: NoteSeatState, name?: string, canRestore = true): string {
   const n = index + 1;
-  if (state === 'disabled') return `${n}번 자리 되살리기`;
+  // R38: onRestore가 없으면 되살릴 수 없는데 "되살리기"라고 약속하는 문구를 쓰지 않는다.
+  if (state === 'disabled') return canRestore ? `${n}번 자리 되살리기` : `${n}번 자리 (삭제됨)`;
   if (state === 'empty' || !name) return `${n}번 자리 (빈 자리)`;
   return `${n}번 자리: ${name}${state === 'fixed' ? ' (고정)' : ''}`;
 }
@@ -58,7 +59,7 @@ export function NoteSeat({
       data-state={state}
       data-size={size}
       data-highlight={highlight ? 'true' : undefined}
-      aria-label={seatLabel(index, state, name)}
+      aria-label={seatLabel(index, state, name, Boolean(onRestore))}
       onClick={handler}
       disabled={!handler}
       className={`${base} ${look} ${ring} ${SIZE[size]}`}
@@ -69,7 +70,8 @@ export function NoteSeat({
           ink를 사용한다 (src/styles/contrast.test.ts 참고). */}
       <span className="font-body text-[10px] font-normal text-ink">{index + 1}</span>
       {isRemoved ? (
-        <span>되살리기</span>
+        // R38: onRestore가 없으면 되살릴 수 없으므로 "되살리기"를 약속하는 문구를 쓰지 않는다.
+        <span>{onRestore ? '되살리기' : '삭제된 자리'}</span>
       ) : showEmpty ? (
         // R30: opacity 합성(~3.0:1)이 아니라 ink 색 + normal weight로 "비어있음"을 표현한다.
         <span className="text-ink font-normal">빈 자리</span>
