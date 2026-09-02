@@ -81,3 +81,16 @@ describe('포커스 링 대비 (비텍스트 요소, 3:1 이상)', () => {
     expect(contrastRatio(a, b)).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('WoodButton danger 텍스트 대비 (texture-wood 그라디언트, R20)', () => {
+  // texture-wood: linear-gradient(#B8813F, #8B5A2B) — light stop → dark stop.
+  // 텍스트 색은 #FFF3D6. lg(22px bold)는 large-text 기준 3:1, md(15px bold)는
+  // large-text 기준에 못 미치므로 더 어두운(대비가 낮은) dark stop 기준으로 4.5:1을 요구한다.
+  it('#FFF3D6 / #B8813F (light stop) 는 3.0:1 이상이다 (lg, large bold text)', () => {
+    expect(contrastRatio('#FFF3D6', '#B8813F')).toBeGreaterThanOrEqual(3.0);
+  });
+
+  it('#FFF3D6 / #8B5A2B (dark stop) 는 4.5:1 이상이다 (md, 15px bold)', () => {
+    expect(contrastRatio('#FFF3D6', '#8B5A2B')).toBeGreaterThanOrEqual(4.5);
+  });
+});
