@@ -3,14 +3,16 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Extended_Pictographic 중 텍스트 기호(✓ ✕ ★ → ①)는 제외. 변형 선택자(FE0F)는 이모지 표현 강제이므로 포함.
-const EMOJI_RE = /\p{Extended_Pictographic}|\u{FE0F}|[\u{1F1E6}-\u{1F1FF}]/u;
-const TEXT_SYMBOL_ALLOW = /^[\u2190-\u21FF\u2460-\u24FF\u2500-\u25FF\u2600-\u26FF\u2700-\u27BF]$/u;
-const IMAGE_IMPORT_RE = /\bfrom\s+['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]|\bimport\s+['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]/;
+// 이모지 판정: 이모지 표시가 기본인 문자, 그림문자, 국기 지역표시, 변형선택자
+const EMOJI_RE = /\p{Emoji_Presentation}|\p{Extended_Pictographic}|\u{FE0F}|[\u{1F1E6}-\u{1F1FF}]/u;
+// 텍스트 기호로 쓰는 것만 명시적으로 허용 (범위 허용 금지)
+const TEXT_SYMBOL_ALLOW = new Set([...'✓✕✗★☆→←↑↓①②③④⑤⑥⑦⑧⑨⑩']);
+const IMAGE_IMPORT_RE = /\bfrom\s+['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]|\bimport\s+['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]|\bimport\(\s*['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]/i;
 
 function hasEmoji(line) {
   for (const ch of line) {
-    if (EMOJI_RE.test(ch) && !TEXT_SYMBOL_ALLOW.test(ch)) return true;
+    if (TEXT_SYMBOL_ALLOW.has(ch)) continue;
+    if (EMOJI_RE.test(ch)) return true;
   }
   return false;
 }
