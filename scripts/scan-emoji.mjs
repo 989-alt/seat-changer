@@ -1,4 +1,4 @@
-// G4 게이트: src/ 안의 이모지 문자와 이미지 파일 import를 찾는다.
+// G4 게이트: src/ 안의 이모지 문자, 이미지 경로 참조, 이미지 파일 자체를 찾는다.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,14 +7,28 @@ import { fileURLToPath } from 'node:url';
 const EMOJI_RE = /\p{Emoji_Presentation}|\p{Extended_Pictographic}|\u{FE0F}|[\u{1F1E6}-\u{1F1FF}]/u;
 // 텍스트 기호로 쓰는 것만 명시적으로 허용 (범위 허용 금지)
 const TEXT_SYMBOL_ALLOW = new Set([...'✓✕✗★☆→←↑↓①②③④⑤⑥⑦⑧⑨⑩']);
-const IMAGE_IMPORT_RE = /\bfrom\s+['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]|\bimport\s+['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]|\bimport\(\s*['"][^'"]+\.(png|jpe?g|gif|svg|webp)['"]/i;
+// 정적/동적 import, new URL(...), ?url·#hash 접미사, CSS url() 등 이미지 경로 텍스트를 모두 잡는다.
+const IMAGE_IMPORT_RE = /\.(png|jpe?g|gif|svg|webp|avif|bmp|ico)(?=['"`)?#\s]|$)/i;
+// src/ 안에 이미지 파일 자체가 존재해서는 안 된다.
+const IMAGE_FILE_RE = /\.(png|jpe?g|gif|svg|webp|avif|bmp|ico)$/i;
+
+function decodeEscapes(line) {
+  return line
+    .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
 
 function hasEmoji(line) {
-  for (const ch of line) {
+  const decoded = decodeEscapes(line);
+  for (const ch of decoded) {
     if (TEXT_SYMBOL_ALLOW.has(ch)) continue;
     if (EMOJI_RE.test(ch)) return true;
   }
   return false;
+}
+
+export function isImageFile(name) {
+  return IMAGE_FILE_RE.test(name);
 }
 
 export function findViolations(files) {
@@ -28,20 +42,26 @@ export function findViolations(files) {
   return out;
 }
 
-function walk(dir, acc = []) {
+function walk(dir, files = [], imageFiles = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) walk(p, acc);
-    else if (/\.(tsx?|css|html|mjs)$/.test(name)) acc.push({ path: p, content: readFileSync(p, 'utf8') });
+    if (statSync(p).isDirectory()) {
+      walk(p, files, imageFiles);
+    } else if (isImageFile(name)) {
+      imageFiles.push({ path: p, line: 0, kind: 'image-file' });
+    } else if (/\.(tsx?|jsx?|cjs|css|html|mjs)$/.test(name)) {
+      files.push({ path: p, content: readFileSync(p, 'utf8') });
+    }
   }
-  return acc;
+  return { files, imageFiles };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const violations = findViolations(walk('src'));
+  const { files, imageFiles } = walk('src');
+  const violations = [...findViolations(files), ...imageFiles];
   if (violations.length) {
     for (const v of violations) console.error(`${v.kind}: ${v.path}:${v.line}`);
-    console.error(`이모지·이미지 import ${violations.length}건`);
+    console.error(`이모지·이미지 참조·이미지 파일 ${violations.length}건`);
     process.exit(1);
   }
   console.log('scan: 위반 없음');

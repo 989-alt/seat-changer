@@ -20,10 +20,36 @@ export default tseslint.config(
   },
   {
     // core/는 UI·브라우저 의존 금지
-    files: ['src/core/**/*.ts'],
+    files: ['src/core/**/*.{ts,tsx,js,jsx}'],
     rules: {
-      'no-restricted-imports': ['error', { paths: ['react', 'react-dom', 'zustand', 'zundo'], patterns: ['@/components/*', '@/store/*', '@/pages/*'] }],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            'react',
+            'react/*',
+            'react-dom',
+            'react-dom/*',
+            'zustand',
+            'zustand/*',
+            'zundo',
+            'zundo/*',
+            '@/components/*',
+            '@/store/*',
+            '@/pages/*',
+            '**/components/**',
+            '**/store/**',
+            '**/pages/**',
+          ],
+        },
+      ],
       'no-restricted-globals': ['error', 'window', 'document', 'localStorage', 'sessionStorage', 'navigator'],
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'ImportExpression', message: 'core/에서는 동적 import를 쓰지 않는다' },
+        { selector: "MemberExpression[object.name='globalThis']", message: 'core/에서는 globalThis로 브라우저 전역에 접근하지 않는다' },
+        { selector: "Identifier[name='globalThis']", message: 'core/에서는 globalThis를 쓰지 않는다' },
+      ],
     },
   },
 );
