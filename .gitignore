@@ -1,6 +1,11 @@
 # Node / build
 node_modules/
 dist/
+coverage/
+test-results/
+playwright-report/
+.vercel
+*.tsbuildinfo
 
 # OS files
 .DS_Store

@@ -15,5 +15,6 @@
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }
   },
-  "include": ["src", "vitest.setup.ts", "e2e", "scripts"]
+  "include": ["src", "vitest.setup.ts", "e2e", "scripts"],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }
