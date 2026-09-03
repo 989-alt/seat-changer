@@ -9,7 +9,9 @@ export default defineConfig({
     // baseURL의 127.0.0.1에 연결되지 않는다.
     command: 'npm run build && npm run preview -- --port 4173 --strictPort --host 127.0.0.1',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: true,
+    // R43: 기본은 항상 새로 빌드·기동한다. 4173에 남은 preview가 낡은 dist/를
+    // 내보내면 게이트가 헛통과하기 때문이다. 반복 실행 시에만 PW_REUSE_SERVER=1.
+    reuseExistingServer: !!process.env.PW_REUSE_SERVER,
     timeout: 120_000,
   },
   reporter: [['list']],

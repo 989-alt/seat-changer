@@ -12,13 +12,24 @@ import { dirname, join } from 'node:path';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(repoRoot, 'node_modules', '@playwright', 'test', 'cli.js');
 
+// R47: 빈 문자열은 "설정되지 않음"으로 본다(||). Playwright 쪽 기본값 판정과도 같다.
+const cacheDir =
+  process.env.PWTEST_CACHE_DIR || join(repoRoot, 'node_modules', '.cache', 'playwright-transform');
+
+// R47: 우회의 전제는 캐시 경로가 순수 ASCII라는 것이다. 아니면 조용히 죽는 대신 이유를 말한다.
+const isAscii = (s) => [...s].every((c) => c.codePointAt(0) < 128);
+if (process.platform === 'win32' && !isAscii(cacheDir)) {
+  console.error(
+    `PWTEST_CACHE_DIR에 비 ASCII 문자가 들어 있어 Playwright가 네이티브로 죽는다: ${cacheDir}\n` +
+      'ASCII 경로를 직접 지정해라. 예: set PWTEST_CACHE_DIR=C:\\pw-cache',
+  );
+  process.exit(1);
+}
+
 const child = spawn(process.execPath, [cli, 'test', ...process.argv.slice(2)], {
   cwd: repoRoot,
   stdio: 'inherit',
-  env: {
-    ...process.env,
-    PWTEST_CACHE_DIR: process.env.PWTEST_CACHE_DIR ?? join(repoRoot, 'node_modules', '.cache', 'playwright-transform'),
-  },
+  env: { ...process.env, PWTEST_CACHE_DIR: cacheDir },
 });
 
 child.on('exit', (code, signal) => {

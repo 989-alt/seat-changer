@@ -66,7 +66,8 @@ export function DevCorkPage() {
         </div>
         <div className="flex flex-col items-center gap-4">
           <ChalkBoard />
-          <div className="grid w-full max-w-[720px] grid-cols-5 gap-3">
+          {/* data-testid: e2e가 강조 카드 좌석과 헷갈리지 않고 이 그리드만 집는다. */}
+          <div data-testid="seat-grid" className="grid w-full max-w-[720px] grid-cols-5 gap-3">
             {Array.from({ length: GRID_SIZE }, (_, i) => {
               const variant = (i % 3) as 0 | 1 | 2;
               if (i === FIXED_INDEX)

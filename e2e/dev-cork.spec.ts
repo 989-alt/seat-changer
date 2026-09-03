@@ -1,84 +1,171 @@
-import { test, expect, type Locator } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+
+/*
+ * 색은 src/styles/globals.css의 @theme 토큰을 rgb()로 옮긴 값이다.
+ * 토큰이 바뀌면 이 상수도 함께 고쳐야 한다(원본은 src/styles/tokens.test.ts가 지킨다).
+ */
+const CORK = 'rgb(200, 149, 90)'; // --color-cork: #C8955A
+const INK = 'rgb(42, 33, 27)'; // --color-ink: #2A211B
+
+type Box = { x: number; y: number; width: number; height: number };
 
 /** boundingBox()의 null 가능성을 한곳에서 처리한다. */
-async function box(locator: Locator) {
+async function box(locator: Locator): Promise<Box> {
   const b = await locator.boundingBox();
   if (!b) throw new Error('boundingBox를 얻지 못했다');
   return b;
 }
 
-test('코르크 갤러리: 전 상태 렌더, 이미지 요청 없음, 스크린샷', async ({ page }) => {
-  const imageRequests: string[] = [];
-  page.on('request', (r) => {
-    if (r.resourceType() === 'image') imageRequests.push(r.url());
+/** 두 사각형의 교집합. 겹치지 않으면 null. */
+function intersect(a: Box, b: Box): Box | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+/** 폰트·스타일시트 요청 실패를 모은다. goto 전에 붙여야 한다. */
+function trackAssetFailures(page: Page): string[] {
+  const failed: string[] = [];
+  page.on('requestfailed', (r) => {
+    const type = r.resourceType();
+    if (type === 'font' || type === 'stylesheet') failed.push(`${type} ${r.url()}`);
+  });
+  return failed;
+}
+
+const seats = (page: Page) => page.locator('[data-cork="note-seat"]');
+
+test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
+  test('컴포넌트 전 상태가 한 화면에 렌더된다 (+ G7 스크린샷)', async ({ page }) => {
+    await page.goto('/dev/cork');
+    await expect(page.locator('[data-page="dev-cork"]')).toBeVisible();
+
+    await expect(page.locator('[data-cork="note-seat"][data-state="assigned"]').first()).toBeVisible();
+    await expect(page.locator('[data-cork="note-seat"][data-state="fixed"]').first()).toBeVisible();
+    await expect(page.locator('[data-cork="note-seat"][data-state="empty"]').first()).toBeVisible();
+    await expect(page.locator('[data-cork="note-seat"][data-state="disabled"]').first()).toBeVisible();
+    await expect(page.locator('[data-cork="note-seat"][data-highlight="true"]').first()).toBeVisible();
+    await expect(page.locator('[data-cork="chalkboard"][data-kind="board"]')).toBeVisible();
+    await expect(page.locator('[data-cork="chalkboard"][data-kind="podium"]')).toBeVisible();
+    await expect(page.locator('[data-cork="paper-card"]').first()).toBeVisible();
+    await expect(page.locator('[data-cork="wood-button"]').first()).toBeVisible();
+
+    // R38: 삭제 좌석은 onRestore 유무에 따라 문구가 갈린다.
+    await expect(seats(page).filter({ hasText: '되살리기' })).toHaveCount(1);
+    await expect(seats(page).filter({ hasText: '삭제된 자리' })).toHaveCount(1);
+
+    // R44: 뒤 단언이 실패해도 G7이 볼 그림은 남도록 여기서 바로 찍는다.
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: 'test-results/dev-cork.png', fullPage: true });
+    await page.screenshot({ path: 'test-results/dev-cork-1080.png', fullPage: false });
   });
 
-  await page.goto('/dev/cork');
-  const root = page.locator('[data-page="dev-cork"]');
-  await expect(root).toBeVisible();
+  test('토큰·질감·글꼴이 실제로 적용된다', async ({ page }) => {
+    const failedAssets = trackAssetFailures(page);
+    await page.goto('/dev/cork');
+    const root = page.locator('[data-page="dev-cork"]');
+    await expect(root).toBeVisible();
 
-  // --- 좌석 전 상태와 칠판 ---
-  await expect(page.locator('[data-cork="note-seat"][data-state="assigned"]').first()).toBeVisible();
-  await expect(page.locator('[data-cork="note-seat"][data-state="fixed"]').first()).toBeVisible();
-  await expect(page.locator('[data-cork="note-seat"][data-state="empty"]').first()).toBeVisible();
-  await expect(page.locator('[data-cork="note-seat"][data-state="disabled"]').first()).toBeVisible();
-  await expect(page.locator('[data-cork="chalkboard"][data-kind="board"]')).toBeVisible();
-  await expect(page.locator('[data-cork="chalkboard"][data-kind="podium"]')).toBeVisible();
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(CORK);
+    expect(await root.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain('radial-gradient');
 
-  // R38: 삭제 좌석은 onRestore 유무에 따라 문구가 갈린다(되살리기 / 삭제된 자리).
-  await expect(page.locator('[data-cork="note-seat"][data-state="disabled"]').filter({ hasText: '되살리기' }).first()).toBeVisible();
-  await expect(page.locator('[data-cork="note-seat"][data-state="disabled"]').filter({ hasText: '삭제된 자리' }).first()).toBeVisible();
+    const h1 = page.locator('h1').first();
+    expect(await h1.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Gaegu');
+    // R20: cork 배경 위 텍스트는 ink여야 한다(paper는 2.57:1로 금지).
+    expect(await h1.evaluate((el) => getComputedStyle(el).color)).toBe(INK);
 
-  // --- 계산된 스타일(R24/R26): 토큰과 질감이 실제로 적용됐다 ---
-  const bodyBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  expect(bodyBg).toBe('rgb(200, 149, 90)');
+    // R46: 폰트 스택 문자열만으로는 대체 글꼴로 그려져도 통과한다. 실제 로드를 확인한다.
+    // document.fonts.check()는 @font-face 자체가 없으면(스타일시트 실패) true를 돌려주므로
+    // 쓸 수 없다 — 적재된 FontFace 목록을 직접 본다.
+    await page.evaluate(() => document.fonts.ready);
+    const gaeguLoaded = await page.evaluate(() =>
+      Array.from(document.fonts).some((f) => f.family.replace(/["']/g, '') === 'Gaegu' && f.status === 'loaded'),
+    );
+    expect(gaeguLoaded).toBe(true);
+    expect(failedAssets).toEqual([]);
 
-  const rootBgImage = await root.evaluate((el) => getComputedStyle(el).backgroundImage);
-  expect(rootBgImage).toContain('radial-gradient');
+    // R33: 강조 링은 gold가 아니라 ink다. Tailwind ring은 box-shadow로 그려진다.
+    const highlight = page.locator('[data-cork="note-seat"][data-highlight="true"]').first();
+    // outlineColor·borderColor는 기본값이 currentColor(=ink)라 늘 통과한다. box-shadow만 본다.
+    const ring = await highlight.evaluate((el) => getComputedStyle(el).boxShadow);
+    expect(ring).toContain(INK);
+    // 강조가 아닌 좌석에는 그 링이 없다(단언이 실제로 무언가를 가른다).
+    const plain = page.locator('[data-cork="note-seat"]:not([data-highlight="true"])').first();
+    expect(await plain.evaluate((el) => getComputedStyle(el).boxShadow)).not.toContain(INK);
+  });
 
-  const h1Font = await page.locator('h1').first().evaluate((el) => getComputedStyle(el).fontFamily);
-  expect(h1Font).toContain('Gaegu');
+  test('장식은 클릭을 통과시키고, 좌석 활성/비활성이 규칙대로다', async ({ page }) => {
+    await page.goto('/dev/cork');
+    const root = page.locator('[data-page="dev-cork"]');
+    await expect(root).toBeVisible();
 
-  // --- 장식 배치(R27): 압정이 카드 위쪽 가운데에 꽂혀 있다 ---
-  const card = page.locator('[data-cork="paper-card"]').first();
-  const pin = card.locator('[data-cork="pushpin"]').first();
-  const cardBox = await box(card);
-  const pinBox = await box(pin);
-  const cardCenterX = cardBox.x + cardBox.width / 2;
-  const pinCenterX = pinBox.x + pinBox.width / 2;
-  expect(Math.abs(pinCenterX - cardCenterX)).toBeLessThanOrEqual(12);
-  expect(pinBox.y).toBeGreaterThanOrEqual(cardBox.y - 14);
-  expect(pinBox.y).toBeLessThanOrEqual(cardBox.y + 4);
+    // --- 장식은 pointer-events: none 이다(클릭 통과의 진짜 근거) ---
+    const pointerEvents = (l: Locator) => l.evaluate((el) => getComputedStyle(el).pointerEvents);
+    expect(await pointerEvents(page.locator('[data-cork="tape"]').first())).toBe('none');
+    expect(await pointerEvents(page.locator('[data-cork="pushpin"]').first())).toBe('none');
 
-  // --- 클릭 통과: 테이프(pointer-events-none) 위를 눌러도 좌석이 눌린다 ---
-  const seat0 = page.locator('[data-cork="note-seat"][data-seat="0"]').first();
-  const tape = seat0.locator('[data-cork="tape"]').first();
-  const tapeBox = await box(tape);
-  await expect(root).toHaveAttribute('data-clicks', '0');
-  await page.mouse.click(tapeBox.x + tapeBox.width / 2, tapeBox.y + tapeBox.height / 2);
-  await expect(root).toHaveAttribute('data-clicks', '1');
+    // --- 압정이 카드 위쪽 가운데에 꽂혀 있다 ---
+    const card = page.locator('[data-cork="paper-card"]').first();
+    const cardBox = await box(card);
+    const pinBox = await box(card.locator('[data-cork="pushpin"]').first());
+    expect(Math.abs(pinBox.x + pinBox.width / 2 - (cardBox.x + cardBox.width / 2))).toBeLessThanOrEqual(12);
+    expect(pinBox.y).toBeGreaterThanOrEqual(cardBox.y - 14);
+    expect(pinBox.y).toBeLessThanOrEqual(cardBox.y + 4);
 
-  // --- 이름 잘림(5자 "황보아리랑") ---
-  const big = page.locator('[data-cork="note-seat"][data-size="lg"]').filter({ hasText: '황보아리랑' }).first();
-  const bigBox = await box(big);
-  expect(bigBox.width).toBeGreaterThanOrEqual(150);
-  const nameSpan = big.locator('span', { hasText: '황보아리랑' }).first();
-  const metrics = await nameSpan.evaluate((el) => ({
-    scrollWidth: el.scrollWidth,
-    clientWidth: el.clientWidth,
-    height: el.clientHeight,
-    fontSize: parseFloat(getComputedStyle(el).fontSize),
-  }));
-  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
-  // 줄바꿈 없이 한 줄에 들어간다(두 줄이 되면 높이가 글자 크기의 1.6배를 넘는다).
-  expect(metrics.height).toBeLessThan(metrics.fontSize * 1.6);
-  const nameBox = await box(nameSpan);
-  expect(nameBox.x).toBeGreaterThanOrEqual(bigBox.x - 1);
-  expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(bigBox.x + bigBox.width + 1);
+    // --- 테이프와 좌석이 실제로 겹치는 지점을 눌러도 좌석이 눌린다 ---
+    const seat = page.getByTestId('seat-grid').locator('[data-cork="note-seat"][data-seat="0"]');
+    await expect(seat).toHaveCount(1);
+    const hit = intersect(await box(seat.locator('[data-cork="tape"]').first()), await box(seat));
+    if (!hit) throw new Error('테이프와 좌석이 겹치는 지점이 없어 클릭 통과를 검증할 수 없다');
+    await expect(root).toHaveAttribute('data-clicks', '0');
+    await page.mouse.click(hit.x + hit.width / 2, hit.y + hit.height / 2);
+    await expect(root).toHaveAttribute('data-clicks', '1');
 
-  // --- 이미지 요청 없음(질감·테이프·압정은 전부 CSS) ---
-  expect(imageRequests).toEqual([]);
+    // --- R32/R38: 되살릴 수 없는 삭제 좌석만 disabled, 나머지는 전부 활성 ---
+    const all = seats(page);
+    const total = await all.count();
+    expect(total).toBeGreaterThan(0);
+    for (let i = 0; i < total; i += 1) {
+      const s = all.nth(i);
+      const removedWithoutRestore = ((await s.textContent()) ?? '').includes('삭제된 자리');
+      if (removedWithoutRestore) await expect(s).toBeDisabled();
+      else await expect(s).toBeEnabled();
+    }
+    await expect(all.filter({ hasText: '삭제된 자리' })).toHaveCount(1);
+  });
 
-  await page.screenshot({ path: 'test-results/dev-cork.png', fullPage: true });
-  await page.screenshot({ path: 'test-results/dev-cork-1080.png', fullPage: false });
+  test('5자 이름이 잘리지 않고, 이미지 요청이 하나도 없다', async ({ page }) => {
+    const imageRequests: string[] = [];
+    page.on('request', (r) => {
+      if (r.resourceType() === 'image') imageRequests.push(r.url());
+    });
+
+    await page.goto('/dev/cork');
+    await expect(page.locator('[data-page="dev-cork"]')).toBeVisible();
+    // R46: 대체 글꼴로 잰 치수는 의미가 없다. 웹폰트가 적용된 뒤 측정한다.
+    await page.evaluate(() => document.fonts.ready);
+
+    const big = page.locator('[data-cork="note-seat"][data-size="lg"]').filter({ hasText: '황보아리랑' });
+    await expect(big).toHaveCount(1);
+    const bigBox = await box(big);
+    const name = big.locator('span', { hasText: '황보아리랑' }).first();
+    const metrics = await name.evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      height: el.clientHeight,
+      fontSize: parseFloat(getComputedStyle(el).fontSize),
+    }));
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+    // 줄바꿈 없이 한 줄에 들어간다(두 줄이면 높이가 글자 크기의 1.6배를 넘는다).
+    expect(metrics.height).toBeLessThan(metrics.fontSize * 1.6);
+    const nameBox = await box(name);
+    expect(nameBox.x).toBeGreaterThanOrEqual(bigBox.x - 1);
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(bigBox.x + bigBox.width + 1);
+
+    // 질감·테이프·압정은 전부 CSS다.
+    expect(imageRequests).toEqual([]);
+  });
 });
