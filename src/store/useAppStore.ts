@@ -66,16 +66,28 @@ const pickUndoable = (d: ClassData): UndoSnapshot => ({
   studentGenders: d.studentGenders,
 });
 
+const UNDO_KEYS = [
+  'layoutType',
+  'layoutSettings',
+  'fixedSeats',
+  'separationRules',
+  'genderRule',
+  'studentGenders',
+] as const satisfies readonly (keyof UndoSnapshot)[];
+
 /**
  * zundo의 undo/redo는 `partialize`가 만든 스냅샷을 zustand의 얕은 병합 set에
  * 그대로 넘긴다. 스냅샷을 `{ data: ... }` 모양으로 만들면 data가 통째로
  * 교체되어 students 등 Undo 대상이 아닌 필드가 사라진다.
  * 그래서 스냅샷은 ClassData의 필드를 최상위로 편 평평한 모양으로 만들고,
  * temporal 바깥에서 set을 가로채 data 안으로 병합해 넣는다.
- * (AppState에는 layoutSettings라는 최상위 키가 없으므로 액션의 set과 구분된다.)
+ *
+ * R84: 키 하나만 보는 덕타이핑 대신 Undo 대상 6개가 모두 자기 소유 키로 있는지
+ * 구조로 확인한다. AppState의 어떤 액션 페이로드도 이 6개를 동시에 갖지 않는다.
  */
 function isUndoSnapshot(partial: unknown): partial is UndoSnapshot {
-  return typeof partial === 'object' && partial !== null && 'layoutSettings' in partial;
+  if (typeof partial !== 'object' || partial === null) return false;
+  return UNDO_KEYS.every((k) => Object.hasOwn(partial, k));
 }
 
 type TemporalMutator = [['temporal', StoreApi<TemporalState<UndoSnapshot>>]];
@@ -107,6 +119,10 @@ const rawSeatCount = (d: ClassData): number => getLayout(d.layoutType).getSeatCo
 
 const todayFrom = (timestamp: number): string => new Date(timestamp).toISOString().slice(0, 10);
 
+/** R84: 행·열은 저장 전에 스키마가 받는 범위(1~12 정수)로 접는다. */
+const clampGrid = (n: number): number =>
+  Math.max(LIMITS.MIN_GRID, Math.min(LIMITS.MAX_GRID, Math.trunc(n)));
+
 export function createAppStore(adapter: StorageAdapter): UseBoundStore<
   StoreApi<AppState> & { temporal: StoreApi<TemporalState<UndoSnapshot>> }
 > {
@@ -130,11 +146,17 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
       temporalApi?.getState().clear();
     };
 
-    /** Undo 대상이 아닌 변경(명단 등)은 스냅샷을 남기지 않는다. */
+    /**
+     * Undo 대상이 아닌 변경(명단 등)은 스냅샷을 남기지 않는다.
+     * R84: 구독자(저장 리스너 등)가 던져도 추적이 멈춘 채로 남지 않도록 finally로 되돌린다.
+     */
     const setUntracked = (data: ClassData) => {
       temporalApi?.getState().pause();
-      set({ data });
-      temporalApi?.getState().resume();
+      try {
+        set({ data });
+      } finally {
+        temporalApi?.getState().resume();
+      }
     };
 
     return {
@@ -171,13 +193,16 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
       },
 
       duplicateClass: (src, n) => {
+        const trimmed = n.trim();
+        // R84: duplicate()는 이름 중복·상한 초과 같은 정상적 거절에도 false를 준다.
+        // "이 호출이 반을 새로 만들어 놓고 복사만 실패했는가"를 앞뒤 목록 비교로 가린다.
+        const before = registry.list();
         const ok = registry.duplicate(src, n);
         const classes = registry.list();
-        // Task 14 주의: 복사본 데이터 쓰기가 실패해도 반 자체는 등록될 수 있다.
-        // 그 경우 새 반은 기본값을 들고 있으므로 사용자에게 알린다.
-        const partial =
-          !ok && classes.includes(n.trim()) ? { classes, loadNotice: NOTICE.COPY_FAILED } : { classes };
-        set(partial);
+        const copyFailed = !ok && !before.includes(trimmed) && classes.includes(trimmed);
+        // 이름 중복 등 그 밖의 실패는 안내를 남기지 않는다.
+        // 어떤 이름으로 실패했는지는 호출한 UI가 알고 있으므로 boolean으로 충분하다.
+        set(copyFailed ? { classes, loadNotice: NOTICE.COPY_FAILED } : { classes });
         return ok;
       },
 
@@ -194,8 +219,18 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
       // 명단에서 빠진 학생의 고정 좌석·분리 규칙·성별은 함께 정리한다.
       setStudents: (names) => {
         const d = get().data;
-        const students = [...new Set(sanitizeStudents(names))];
-        const roster = new Set(students);
+        // R84: 정리 → 중복 제거 → 상한 순서로 처리한다. sanitizeStudents가 배열 전체를
+        // 받으면 상한(100명)을 중복 제거보다 먼저 적용해 유효한 학생이 밀려난다.
+        // 정리 규칙은 그대로 쓰기 위해 이름을 하나씩 넘기고, 상한만 여기서 적용한다.
+        const students: string[] = [];
+        const roster = new Set<string>();
+        for (const raw of Array.isArray(names) ? names : []) {
+          const [clean] = sanitizeStudents([raw]);
+          if (clean === undefined || roster.has(clean)) continue;
+          roster.add(clean);
+          students.push(clean);
+          if (students.length >= LIMITS.MAX_STUDENTS) break;
+        }
         const studentGenders: Record<string, Gender> = {};
         for (const name of students) {
           // R63: 학생 이름으로 객체를 읽는 자리는 Object.hasOwn으로 막는다.
@@ -212,6 +247,9 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
           separationRules: d.separationRules.filter((r) => roster.has(r.studentA) && roster.has(r.studentB)),
           studentGenders,
         });
+        // R84: 쌓여 있던 스냅샷에는 옛 명단 기준의 fixedSeats·studentGenders가 들어 있다.
+        // 명단이 바뀐 뒤 그걸 되돌리면 없는 학생이 되살아나므로 스택을 비운다.
+        temporalApi?.getState().clear();
       },
 
       // R59: 비활성 좌석은 중복 없이, 현재 배치의 좌석 범위 안에서만 유지한다.
@@ -250,10 +288,23 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
         set({ data: { ...d, layoutSettings: { ...d.layoutSettings, disabledSeats: [] } } });
       },
 
+      // R84: 접지 않고 저장하면 다음 로드 때 스키마 범위로 조용히 바뀌어
+      // 화면에서 본 행·열과 저장된 값이 어긋난다. 쓰기 전에 접는다.
       setGridSize: (columns, rows) => {
+        if (!Number.isFinite(columns) || !Number.isFinite(rows)) return { clearedDisabled: 0 };
         const d = get().data;
         const clearedDisabled = d.layoutSettings.disabledSeats.length;
-        set({ data: { ...d, layoutSettings: { ...d.layoutSettings, columns, rows, disabledSeats: [] } } });
+        set({
+          data: {
+            ...d,
+            layoutSettings: {
+              ...d.layoutSettings,
+              columns: clampGrid(columns),
+              rows: clampGrid(rows),
+              disabledSeats: [],
+            },
+          },
+        });
         return { clearedDisabled };
       },
 

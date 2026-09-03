@@ -4,6 +4,8 @@ import { createAppStore } from './useAppStore';
 import { createMemoryAdapter } from '@/core/storage/memoryAdapter';
 import type { StorageAdapter } from '@/core/storage/adapter';
 import { dataKey, KEYS } from '@/core/storage/classes';
+import { loadClassData } from '@/core/model/migrate';
+import { LIMITS } from '@/core/model/defaults';
 
 const v1 = readFileSync(resolve(__dirname, '../test/fixtures/v1-basic.json'), 'utf8');
 
@@ -24,13 +26,59 @@ function bootWithFailingDataWrites() {
   };
   const store = createAppStore(adapter);
   return {
-    adapter,
     store,
     s: () => store.getState(),
     startFailing: () => {
       failData = true;
     },
   };
+}
+
+/** 데이터 키 쓰기 횟수를 세는 어댑터. "변경 1회 = 저장 1회"를 확인한다. */
+function bootCounting(initial: Record<string, string> = {}) {
+  const inner = createMemoryAdapter(initial);
+  let writes = 0;
+  const adapter: StorageAdapter = {
+    get: (k) => inner.get(k),
+    set: (k, v) => {
+      if (k.startsWith(KEYS.DATA_PREFIX)) writes += 1;
+      return inner.set(k, v);
+    },
+    remove: (k) => inner.remove(k),
+  };
+  const store = createAppStore(adapter);
+  return {
+    adapter,
+    store,
+    s: () => store.getState(),
+    writes: () => writes,
+    resetWrites: () => {
+      writes = 0;
+    },
+  };
+}
+
+/**
+ * 지정한 반의 데이터 키에 두 번째로 쓰는 순간 실패시킨다.
+ * registry.duplicate는 add()로 기본값을 한 번 쓴 뒤 원본 복사를 한 번 더 쓰므로,
+ * 이 어댑터에서는 "반은 등록됐는데 설정 복사만 실패한" 상태가 재현된다.
+ */
+function bootWithFailingCopy(target: string) {
+  const inner = createMemoryAdapter();
+  let hits = 0;
+  const adapter: StorageAdapter = {
+    get: (k) => inner.get(k),
+    set: (k, v) => {
+      if (k === dataKey(target)) {
+        hits += 1;
+        if (hits >= 2) return false;
+      }
+      return inner.set(k, v);
+    },
+    remove: (k) => inner.remove(k),
+  };
+  const store = createAppStore(adapter);
+  return { store, s: () => store.getState() };
 }
 
 describe('부팅', () => {
@@ -120,6 +168,21 @@ describe('반 관리', () => {
     s().switchClass('2반');
     expect(s().data.students).toEqual(['A', 'B']);
   });
+  it('이름이 겹쳐 실패한 복제는 저장 실패로 오진단하지 않는다 (R84)', () => {
+    const { s } = boot();
+    s().addClass('2반');
+    s().clearNotice();
+    expect(s().duplicateClass('1반', '2반')).toBe(false);
+    expect(s().loadNotice).toBeNull();
+    expect(s().classes).toEqual(['1반', '2반']);
+  });
+  it('설정 복사만 실패하면 안내를 남긴다 (R84)', () => {
+    const { s } = bootWithFailingCopy('2반');
+    s().setStudents(['A']);
+    expect(s().duplicateClass('1반', '2반')).toBe(false);
+    expect(s().classes).toContain('2반'); // 반은 등록됐다
+    expect(s().loadNotice).toMatch(/복사하지 못했습니다/);
+  });
 });
 
 describe('좌석 삭제·복구·Undo', () => {
@@ -149,6 +212,29 @@ describe('좌석 삭제·복구·Undo', () => {
     s().deleteSeat(2);
     expect(s().setGridSize(5, 5)).toEqual({ clearedDisabled: 2 });
     expect(s().data.layoutSettings).toMatchObject({ columns: 5, rows: 5, disabledSeats: [] });
+  });
+  it('setGridSize는 범위를 벗어난 행·열을 접어서 저장한다 (R84)', () => {
+    const { adapter, s } = boot();
+    s().setGridSize(0, 100);
+    expect(s().data.layoutSettings).toMatchObject({ columns: 1, rows: 12 });
+    const reloaded = loadClassData(adapter.get(dataKey('1반')));
+    expect(reloaded.ok).toBe(true);
+    expect(reloaded.data.layoutSettings).toMatchObject({ columns: 1, rows: 12 });
+    expect(reloaded.data.students).toEqual(s().data.students);
+  });
+  it('setGridSize는 소수를 정수로 접는다 (R84)', () => {
+    const { s } = boot();
+    s().setGridSize(3.7, 4.2);
+    expect(s().data.layoutSettings).toMatchObject({ columns: 3, rows: 4 });
+  });
+  it('setGridSize에 수가 아닌 값이 오면 아무것도 하지 않는다 (R84)', () => {
+    const { s, writes, resetWrites } = bootCounting();
+    s().update({ genderRule: 'same' });
+    const before = s().data;
+    resetWrites();
+    expect(s().setGridSize(Number.NaN, 5)).toEqual({ clearedDisabled: 0 });
+    expect(s().data).toBe(before);
+    expect(writes()).toBe(0);
   });
   it('Undo가 좌석 삭제를 되돌린다', () => {
     const { store, s } = boot();
@@ -188,7 +274,9 @@ describe('좌석 삭제·복구·Undo', () => {
     const before = store.temporal.getState().pastStates.length;
     s().setStudents(['B']);
     expect(s().data.fixedSeats).toEqual([]);
-    expect(store.temporal.getState().pastStates.length).toBe(before);
+    // 정리로 Undo 항목이 생기지 않는다. R84 이후로는 명단 변경이 스택을 아예 비운다.
+    expect(store.temporal.getState().pastStates.length).toBeLessThanOrEqual(before);
+    expect(store.temporal.getState().pastStates).toEqual([]);
   });
   it('Undo 스택은 50개로 제한된다', () => {
     const { store, s } = boot();
@@ -231,6 +319,69 @@ describe('setStudents', () => {
     expect(s().data.separationRules).toEqual([]);
     expect(s().data.studentGenders).toEqual({ A: 'M' });
   });
+  it('중복은 100명 상한보다 먼저 걸러진다 (R84)', () => {
+    const { s } = boot();
+    // 중복 5개 + 서로 다른 이름 100개. 상한을 먼저 적용하면 95명만 남는다.
+    const names = ['중복', '중복', '중복', '중복', '중복'];
+    for (let i = 0; i < 100; i++) names.push(`학생${i}`);
+    s().setStudents(names);
+    expect(s().data.students).toHaveLength(LIMITS.MAX_STUDENTS);
+    expect(s().data.students[0]).toBe('중복');
+    expect(s().data.students[99]).toBe('학생98');
+    expect(new Set(s().data.students).size).toBe(LIMITS.MAX_STUDENTS);
+  });
+  it('공백만 다른 이름도 같은 학생으로 본다 (R84)', () => {
+    const { s } = boot();
+    s().setStudents(['가람', ' 가람 ', '가람\t']);
+    expect(s().data.students).toEqual(['가람']);
+  });
+  it('명단이 바뀌면 Undo 스택을 비운다 (R84)', () => {
+    const { store, s } = boot();
+    s().deleteSeat(3);
+    expect(store.temporal.getState().pastStates.length).toBe(1);
+    s().setStudents(['A']);
+    expect(store.temporal.getState().pastStates).toEqual([]);
+    expect(store.temporal.getState().futureStates).toEqual([]);
+    // 스택을 비운 뒤에도 추적은 계속돼야 한다(pause가 남아 있으면 안 된다).
+    s().deleteSeat(4);
+    expect(store.temporal.getState().pastStates.length).toBe(1);
+  });
+});
+
+describe('저장 횟수', () => {
+  it('데이터 변경 한 번에 저장도 한 번', () => {
+    const { s, writes, resetWrites } = bootCounting();
+    const once = (fn: () => void) => {
+      resetWrites();
+      fn();
+      expect(writes()).toBe(1);
+    };
+    once(() => s().update({ genderRule: 'same' }));
+    once(() => s().updateLayoutSettings({ columns: 4 }));
+    once(() => s().deleteSeat(0));
+    once(() => s().restoreSeat(0));
+    once(() => s().setGridSize(3, 3));
+    once(() => s().setStudents(['A']));
+    once(() => s().recordAssignment({ 0: 'A' }, true));
+    once(() => s().importJSON(JSON.stringify({ students: ['B'] })));
+  });
+  it('안내만 바뀌는 변경은 저장하지 않는다', () => {
+    const { s, writes, resetWrites } = bootCounting();
+    s().recordAssignment({ 0: 'A' }, true);
+    expect(s().loadNotice).not.toBeNull();
+    resetWrites();
+    s().clearNotice();
+    expect(s().loadNotice).toBeNull();
+    expect(writes()).toBe(0);
+  });
+  it('변화가 없는 좌석 조작은 저장하지 않는다', () => {
+    const { s, writes, resetWrites } = bootCounting();
+    resetWrites();
+    s().deleteSeat(999);
+    s().restoreSeat(999);
+    s().restoreAllSeats();
+    expect(writes()).toBe(0);
+  });
 });
 
 describe('recordAssignment', () => {
@@ -257,6 +408,13 @@ describe('recordAssignment', () => {
     s().updateLayoutSettings({ groupSizes: [2] });
     for (let i = 0; i < 7; i++) s().recordAssignment({ 0: 'A', 1: 'B' }, false);
     expect(s().data.groupHistory).toHaveLength(5);
+  });
+  it('이력 폴백이면 안내를 남긴다', () => {
+    const { s } = boot();
+    s().recordAssignment({ 0: 'A' }, false);
+    expect(s().loadNotice).toBeNull();
+    s().recordAssignment({ 0: 'B' }, true);
+    expect(s().loadNotice).toMatch(/이전 자리를 완전히 피할 수 없어/);
   });
   it('배치 기록은 저장된다', () => {
     const { adapter, s } = boot();
