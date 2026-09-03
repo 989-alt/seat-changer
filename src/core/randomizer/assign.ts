@@ -41,6 +41,25 @@ function validSeatsOf(
 }
 
 /**
+ * 배치기가 실제로 적용하는 고정 자리인지 (레거시 384-387행의 세 조건 그대로)
+ * 명단에 없는 학생·좌석 범위 밖·비활성 좌석에 걸린 고정 자리는 조용히 무시된다.
+ *
+ * `verifyAssignment`가 같은 기준을 써야 "배치는 성공했는데 검증은 위반"이라는
+ * 레거시의 불일치가 사라진다(R68). 규칙을 한 곳에만 두려고 export한다.
+ */
+export function isFixedSeatUsable(
+  fs: FixedSeat,
+  students: string[],
+  totalSeats: number,
+  disabledSet: Set<number>,
+): boolean {
+  if (!students.includes(fs.studentName)) return false;
+  if (fs.seatIndex >= totalSeats) return false;
+  if (disabledSet.has(fs.seatIndex)) return false;
+  return true;
+}
+
+/**
  * 한 번의 배치 시도 (레거시 376-437행)
  * 성공하면 좌석->이름 맵을, 실패하면 null을 돌려준다.
  */
@@ -68,9 +87,7 @@ export function tryAssignment(
 
   // 1. 고정 자리 먼저 배정 (단, 비활성 좌석으로 고정된 경우 무시)
   for (const fs of fixedSeats) {
-    if (!students.includes(fs.studentName)) continue;
-    if (fs.seatIndex >= totalSeats) continue;
-    if (disabledSet.has(fs.seatIndex)) continue;
+    if (!isFixedSeatUsable(fs, students, totalSeats, disabledSet)) continue;
     assignment[fs.seatIndex] = fs.studentName;
     assignedStudents.add(fs.studentName);
   }

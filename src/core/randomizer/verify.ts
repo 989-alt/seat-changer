@@ -5,8 +5,12 @@
 // 레거시와 다른 점:
 //   1. 레거시 verifyAssignment는 고정 자리·분리 거리 두 가지만 검사했다.
 //      브리프가 요구한 성별 규칙 검사와 kind 'capacity'를 추가했다. 성별 검사는
-//      랜덤 배치가 실제로 강제하는 `checkGenderConstraintFast`와 같은 기준이라
-//      (none·mixedFirst는 검사 없음), 성공한 배치는 항상 []가 된다.
+//      랜덤 배치가 실제로 강제하는 `checkGenderConstraintFast`와 같은 기준이다
+//      (none·mixedFirst는 검사 없음).
+//   3. 고정 자리 판정 기준을 배치기와 맞췄다 (R68). 레거시는 `tryAssignment`가
+//      조용히 건너뛰는 고정 자리(비활성 좌석·좌석 범위 밖)까지 위반으로 잡아,
+//      "배치는 성공했는데 검증은 위반"인 상태를 만들었다. 이제 두 곳이 같은
+//      `isFixedSeatUsable`을 쓰므로 randomizeSeats가 성공시킨 배치는 항상 []다.
 //   2. 분리 위반 메시지에서 두 이름 사이의 좌우 화살표 기호(U+2194)를 '-'로 바꿨다.
 //      그 문자는 Extended_Pictographic이라 G4 이모지 스캐너(scripts/scan-emoji.mjs)가
 //      위반으로 잡는다(실제로 이 주석에 넣었다가 걸렸다). 그 밖의 문구·
@@ -14,6 +18,7 @@
 import type { Assignment, ClassData, Gender } from '../model/types';
 import { getLayout, getTotalSeats } from '../layouts';
 import { buildAdjacencyMap, type PosMap } from './lookup';
+import { isFixedSeatUsable } from './assign';
 
 export interface Violation {
   kind: 'fixed' | 'separation' | 'gender' | 'capacity';
@@ -35,8 +40,11 @@ export function verifyAssignment(mapping: Assignment, data: ClassData): Violatio
   const violations: Violation[] = [];
 
   // 고정 자리 검증 (레거시 22-27행)
+  // 배치기가 건너뛰는 고정 자리는 검사 대상이 아니다 (R68).
+  // 레거시의 `students.includes` 검사도 이 판정 안에 들어 있다.
+  const disabledSet = new Set(data.layoutSettings.disabledSeats ?? []);
   for (const fs of data.fixedSeats) {
-    if (!data.students.includes(fs.studentName)) continue;
+    if (!isFixedSeatUsable(fs, data.students, positions.length, disabledSet)) continue;
     if (mapping[fs.seatIndex] !== fs.studentName) {
       violations.push({
         kind: 'fixed',

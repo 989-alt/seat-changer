@@ -38,15 +38,8 @@ function posMapOf(positions: SeatPosition[]): Record<number, SeatPosition> {
   return Object.fromEntries(positions.map((p) => [p.index, p]));
 }
 
-/** 좌석 인덱스 -> 모둠 인덱스 (모둠 크기 배열 누적) */
-function groupIndexOf(seatIdx: number, sizes: number[]): number {
-  let acc = 0;
-  for (let g = 0; g < sizes.length; g++) {
-    acc += sizes[g]!;
-    if (seatIdx < acc) return g;
-  }
-  return sizes.length - 1;
-}
+/** 모둠 크기 [4, 4]에서 좌석이 속한 모둠 (0~3번=0모둠, 4~7번=1모둠) */
+const groupOf4x2 = (seatIdx: number): 0 | 1 => (seatIdx < 4 ? 0 : 1);
 
 describe('randomizeSeats', () => {
   it('학생 없음', async () => {
@@ -169,6 +162,50 @@ describe('randomizeSeats', () => {
     expect(i).toBeGreaterThanOrEqual(3);
   });
 
+  it('타임아웃으로 끝난 실패는 detail에 제한 시간을 밝힌다', async () => {
+    let i = 0;
+    const times = [0, 99999];
+    const clock = () => times[Math.min(i++, times.length - 1)]!;
+    const r = await randomizeSeats(cls(), {
+      rng: mulberry32(26),
+      yieldToUI: noYield,
+      timeoutMs: 150,
+      clock,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe('constraints');
+      expect(r.detail).toContain('150ms 제한 초과');
+    }
+  });
+
+  it('제약 자체가 불가능한 실패의 detail에는 제한 시간이 없다', async () => {
+    const d = cls({ students: ['A', 'B'], classSize: 2 });
+    d.layoutSettings.columns = 2;
+    d.layoutSettings.rows = 1;
+    d.separationRules = [{ studentA: 'A', studentB: 'B', minDistance: 5 }];
+    // 시계를 고정해 데드라인에 절대 걸리지 않게 한다
+    const r = await randomizeSeats(d, { rng: mulberry32(27), yieldToUI: noYield, clock: () => 0 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe('constraints');
+      expect(r.detail).not.toContain('제한 초과');
+    }
+  });
+
+  it('이력이 lastAssignment뿐이어도 이력 폴백을 시도한다 (R70, 레거시와 의도적으로 다름)', async () => {
+    const d = cls({ students: ['A'], classSize: 1 });
+    d.layoutSettings.columns = 1;
+    d.layoutSettings.rows = 1;
+    d.lastAssignment = { mapping: { 0: 'A' }, timestamp: 1 };
+    d.assignmentHistory = [];
+    const r = await randomizeSeats(d, { rng: mulberry32(28), yieldToUI: noYield });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.historyFallback).toBe(true);
+    expect(r.mapping).toEqual({ 0: 'A' });
+  });
+
   it('useHistoryExclusion이 false면 이력 폴백을 시도하지 않는다', async () => {
     const d = cls({ students: ['A', 'B'], classSize: 2 });
     d.layoutSettings.columns = 2;
@@ -214,6 +251,8 @@ describe('randomizeSeats', () => {
     if (!r.ok) return;
     expect(r.mapping[0]).toBeUndefined();
     expect(Object.values(r.mapping).sort()).toEqual(['A', 'B']);
+    // R68: 배치기가 건너뛴 고정 자리를 검증기가 위반으로 잡으면 안 된다
+    expect(verifyAssignment(r.mapping, d)).toEqual([]);
   });
 
   it('좌석 범위를 벗어난 고정 자리와 명단에 없는 학생의 고정 자리는 무시한다', async () => {
@@ -270,7 +309,7 @@ describe('randomizeSeats', () => {
     if (!r.ok) return;
     const seatOf = (name: string) =>
       Number(Object.keys(r.mapping).find((k) => r.mapping[Number(k)] === name));
-    expect(groupIndexOf(seatOf('A'), [4, 4])).not.toBe(groupIndexOf(seatOf('B'), [4, 4]));
+    expect(groupOf4x2(seatOf('A'))).not.toBe(groupOf4x2(seatOf('B')));
   });
 
   it('모둠 제약을 만족할 수 없으면 constraints 실패', async () => {
@@ -442,6 +481,22 @@ describe('verifyAssignment', () => {
     const d = cls();
     d.fixedSeats = [{ studentName: '없는학생', seatIndex: 0 }];
     expect(verifyAssignment({ 0: '학생1' }, d)).toEqual([]);
+  });
+
+  it('배치기가 건너뛰는 고정 자리는 검사하지 않는다 (R68)', () => {
+    // 비활성 좌석에 고정된 자리
+    const disabled = cls();
+    disabled.layoutSettings.disabledSeats = [0];
+    disabled.fixedSeats = [{ studentName: '학생1', seatIndex: 0 }];
+    expect(verifyAssignment({ 1: '학생1' }, disabled)).toEqual([]);
+    // 좌석 범위를 벗어난 고정 자리
+    const outOfRange = cls();
+    outOfRange.fixedSeats = [{ studentName: '학생1', seatIndex: 99 }];
+    expect(verifyAssignment({ 1: '학생1' }, outOfRange)).toEqual([]);
+    // 정상 범위의 고정 자리는 그대로 검사한다
+    const normal = cls();
+    normal.fixedSeats = [{ studentName: '학생1', seatIndex: 0 }];
+    expect(verifyAssignment({ 1: '학생1' }, normal).some((x) => x.kind === 'fixed')).toBe(true);
   });
 
   it('한쪽만 배정된 분리 규칙은 검사하지 않는다', () => {

@@ -58,10 +58,16 @@ export async function randomizeSeats(
   const adjacencyMap = buildAdjacencyMap(positions, posMap, data);
   const ruleLookup = buildRuleLookup(separationRules);
 
+  // 시도 루프가 데드라인 때문에 끊겼는지 (실패 detail 문구에만 쓴다)
+  let timedOut = false;
+
   const run = async (d: ClassData): Promise<Assignment | null> => {
     const deadline = clock() + timeoutMs;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (clock() > deadline) break;
+      if (clock() > deadline) {
+        timedOut = true;
+        break;
+      }
       // 매 시도마다 UI 양보
       if (attempt > 0 && (attempt & 3) === 0) await yieldToUI();
       const r = tryAssignment(
@@ -89,15 +95,22 @@ export async function randomizeSeats(
   if (first) return { ok: true, mapping: first, historyFallback: false };
 
   // 2차 폴백: history 제약 없이 재시도
-  if (data.useHistoryExclusion !== false && (data.assignmentHistory ?? []).length > 0) {
+  // 레거시(seat-randomizer.js:109)는 `assignmentHistory.length > 0`만 봤다. 그런데
+  // checkHistoryConstraint는 lastAssignment.mapping도 배제 대상으로 쓰므로,
+  // "이력은 비었고 lastAssignment만 있는" 상태에서는 이력 때문에 실패하고도 폴백을
+  // 시도하지 않았다. 레거시와 의도적으로 다름 (R70): lastAssignment도 조건에 넣는다.
+  const hasHistory =
+    (data.assignmentHistory ?? []).length > 0 || !!data.lastAssignment?.mapping;
+  if (data.useHistoryExclusion !== false && hasHistory) {
     await yieldToUI();
     const second = await run({ ...data, useHistoryExclusion: false });
     if (second) return { ok: true, mapping: second, historyFallback: true };
   }
+  const base = '분리 규칙·성별 규칙·고정 자리를 동시에 만족하는 배치를 찾지 못했습니다.';
   return {
     ok: false,
     reason: 'constraints',
-    detail: '분리 규칙·성별 규칙·고정 자리를 동시에 만족하는 배치를 찾지 못했습니다.',
+    detail: timedOut ? `${base} (${timeoutMs}ms 제한 초과)` : base,
   };
 }
 
