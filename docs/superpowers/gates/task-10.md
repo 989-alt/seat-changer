@@ -10,7 +10,7 @@
 | G6 품질 리뷰(Opus) | 통과 | 13:1x | 루프 0회(Approved). 경미 6 중 3 접음, 3 보류 |
 | G7 시각 체크 | 해당 없음 | | |
 | G8 E2E | 해당 없음 | | |
-| G9 GPT 적대적 QA | G9_RESULT | | 루프 G9_LOOPS. 수용 1(R59)·기각 0 |
+| G9 GPT 적대적 QA | 통과 | 13:5x | 루프 1회(needs-attention→approve; 1차 재검토 프로세스가 죽어 재실행). 수용 1(R59)·기각 0 |
 
 ## 판정 기록
 - R57(구현자 발견, 컨트롤러 판결): 브리핑의 "legacy models.getTotalSeats == groupLayout.getSeatCount" 주석은 틀림. legacy models.js는 ushape를 columns*rows로 세고(6×5에서 30 vs 레이아웃 16) group에 groupPositions.length*groupSize 폴백이 있음. 레거시 추적 결과 models.getTotalSeats는 교사 화면 사전검사·고정석 편집기에서만 쓰이고, 발표 화면과 randomizeSeats는 레이아웃 기반 좌석을 씀 → v2 `getTotalSeats`는 레이아웃 기반 유지(브리핑 index.ts 코드). models.js 쪽은 레거시 잠재 버그(ushape 과다 계산으로 뽑기 불가 명단을 통과시킴). 불일치는 legacy models.js를 import하는 테스트로 고정·문서화. Task 12/13 골든 테스트는 randomizeSeats 기준, 계획 2 UI 사전검사는 v2 getTotalSeats 사용.
@@ -23,5 +23,5 @@
 - getLayout의 `?? examLayout` 폴백은 타입상 도달 불가 — Task 15에서 알 수 없는 layoutType이 유입될 수 있으면 재검토.
 - custom.ts `customDesks || []` 분기 미테스트.
 
-커밋: b67750d
+커밋: b67750d, d33ef2f
 에스컬레이션: 없음
