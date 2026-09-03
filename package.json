@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
-    "e2e": "playwright test",
+    "e2e": "node scripts/run-e2e.mjs",
     "scan": "node scripts/scan-emoji.mjs",
     "gate": "npm run typecheck && npm run lint && npm run test && npm run scan"
   },
