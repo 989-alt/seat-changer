@@ -9,7 +9,7 @@ export interface SeatPosition {
   arcPos?: number;
   px?: number;
   py?: number;
-  group?: number;
+  groupIndex?: number;
 }
 
 export interface SeatLayout {
