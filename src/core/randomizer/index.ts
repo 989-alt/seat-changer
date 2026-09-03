@@ -87,6 +87,10 @@ export async function randomizeSeats(
       );
       if (r) return r;
     }
+    // 루프를 다 돌고 실패했을 때도 데드라인을 확인한다 (R71).
+    // 앞의 검사만으로는 마지막 시도의 backtrack 안에서 시간이 다한 경우
+    // (특히 maxAttempts가 1일 때) 타임아웃을 놓친다.
+    timedOut = timedOut || clock() > deadline;
     return null;
   };
 
@@ -99,8 +103,11 @@ export async function randomizeSeats(
   // checkHistoryConstraint는 lastAssignment.mapping도 배제 대상으로 쓰므로,
   // "이력은 비었고 lastAssignment만 있는" 상태에서는 이력 때문에 실패하고도 폴백을
   // 시도하지 않았다. 레거시와 의도적으로 다름 (R70): lastAssignment도 조건에 넣는다.
+  // 빈 매핑({})은 이력이 아니다 (R72): 배제할 자리가 하나도 없는데 폴백을 켜면
+  // 2차 시도가 시도 횟수와 난수만 태우고 historyFallback을 거짓으로 표시한다.
   const hasHistory =
-    (data.assignmentHistory ?? []).length > 0 || !!data.lastAssignment?.mapping;
+    (data.assignmentHistory ?? []).length > 0 ||
+    Object.keys(data.lastAssignment?.mapping ?? {}).length > 0;
   if (data.useHistoryExclusion !== false && hasHistory) {
     await yieldToUI();
     const second = await run({ ...data, useHistoryExclusion: false });

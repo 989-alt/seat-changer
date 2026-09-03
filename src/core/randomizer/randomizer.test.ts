@@ -179,6 +179,69 @@ describe('randomizeSeats', () => {
     }
   });
 
+  it('마지막 시도 안에서 데드라인을 넘겨도 detail에 제한 시간을 밝힌다 (R71)', async () => {
+    // maxAttempts 1: 루프 앞 검사는 통과하고 backtrack 안에서 데드라인을 넘긴다
+    // clock 호출: 데드라인 계산(0) -> 루프 앞 검사(0) -> backtrack(초과)
+    let i = 0;
+    const times = [0, 0, 101];
+    const clock = () => times[Math.min(i++, times.length - 1)]!;
+    const r = await randomizeSeats(cls(), {
+      rng: mulberry32(29),
+      yieldToUI: noYield,
+      timeoutMs: 100,
+      maxAttempts: 1,
+      clock,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe('constraints');
+      expect(r.detail).toContain('100ms 제한 초과');
+    }
+  });
+
+  it('빈 lastAssignment 매핑은 이력 폴백을 켜지 않는다 (R72)', async () => {
+    // 같은 시드로 두 번 돌려 rng 소비량을 비교한다.
+    // 폴백이 켜지면 2차 시도 루프가 더 돌아 소비량이 늘어난다.
+    const infeasible = () => {
+      const d = cls({ students: ['A', 'B'], classSize: 2 });
+      d.layoutSettings.columns = 2;
+      d.layoutSettings.rows = 1;
+      d.separationRules = [{ studentA: 'A', studentB: 'B', minDistance: 5 }];
+      return d;
+    };
+    const countingRng = (seed: number) => {
+      const inner = mulberry32(seed);
+      const state = { calls: 0 };
+      return { rng: () => (state.calls++, inner()), state };
+    };
+
+    const empty = infeasible();
+    empty.lastAssignment = { mapping: {}, timestamp: 1 };
+    const a = countingRng(30);
+    const ra = await randomizeSeats(empty, { rng: a.rng, yieldToUI: noYield, clock: () => 0 });
+
+    const none = infeasible();
+    none.lastAssignment = null;
+    const b = countingRng(30);
+    const rb = await randomizeSeats(none, { rng: b.rng, yieldToUI: noYield, clock: () => 0 });
+
+    expect(ra.ok).toBe(false);
+    expect(rb.ok).toBe(false);
+    expect(a.state.calls).toBe(b.state.calls);
+    expect(a.state.calls).toBeGreaterThan(0);
+  });
+
+  it('빈 lastAssignment 매핑으로 성공하면 historyFallback은 false (R72)', async () => {
+    const d = cls({ students: ['A', 'B'], classSize: 2 });
+    d.layoutSettings.columns = 2;
+    d.layoutSettings.rows = 1;
+    d.lastAssignment = { mapping: {}, timestamp: 1 };
+    const r = await randomizeSeats(d, { rng: mulberry32(31), yieldToUI: noYield });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.historyFallback).toBe(false);
+  });
+
   it('제약 자체가 불가능한 실패의 detail에는 제한 시간이 없다', async () => {
     const d = cls({ students: ['A', 'B'], classSize: 2 });
     d.layoutSettings.columns = 2;
