@@ -26,15 +26,27 @@ function intersect(a: Box, b: Box): Box | null {
   return { x, y, width: right - x, height: bottom - y };
 }
 
+/** 이 페이지가 실제로 그리는 데 필요한 글꼴 얼굴 하나. */
+type FontFaceNeed = { font: string; text: string };
+
+/** h1 "코르크 컴포넌트"가 쓰는 얼굴 (font-hand, 굵기 지정 없음 → 400). */
+const H1_FACE: FontFaceNeed = { font: '400 36px Gaegu', text: '코르크 컴포넌트' };
+/** lg 좌석 이름표가 쓰는 얼굴 (NoteSeat: font-hand font-bold + text-[28px] → 700 28px). */
+const SEAT_LG_FACE: FontFaceNeed = { font: '700 28px Gaegu', text: '황보아리랑' };
+
 /**
  * 웹폰트가 실제로 적용된 상태로 페이지를 연다.
  *
  * R46/R48: `document.fonts.ready`는 폰트 로드가 **실패해도** resolve하므로, 그것만
  * 기다리면 대체 글꼴로 잰 치수나 찍은 그림이 조용히 통과한다. 테스트마다 page와
- * 컨텍스트가 따로라 검사를 한 테스트에만 둘 수도 없다. 글꼴에 기대는 테스트는
- * 전부 이 함수로 연다.
+ * 컨텍스트가 따로라 검사를 한 테스트에만 둘 수도 없다.
+ *
+ * R51: 굵기별로 파일이 갈리므로 "Gaegu 중 하나라도 loaded"로는 부족하다. 400은
+ * 받아지고 700이 404여도(Playwright는 404를 requestfailed로 보고하지 않는다) lg
+ * 이름표는 대체 글꼴로 그려진다. 그래서 그 테스트가 실제로 기대는 얼굴을 지정해
+ * `document.fonts.load()`로 직접 받아내고, 받은 얼굴이 있는지 확인한다.
  */
-async function gotoWithFonts(page: Page, url: string): Promise<void> {
+async function gotoWithFonts(page: Page, url: string, need: FontFaceNeed = H1_FACE): Promise<void> {
   // requestfailed 구독은 반드시 goto 전에 붙어야 한다.
   const failed: string[] = [];
   page.on('requestfailed', (r) => {
@@ -46,11 +58,22 @@ async function gotoWithFonts(page: Page, url: string): Promise<void> {
   await page.evaluate(() => document.fonts.ready);
 
   // document.fonts.check()는 @font-face 자체가 없으면(스타일시트 실패) true를 돌려줘
-  // 쓸 수 없다 — 적재된 FontFace 목록을 직접 본다.
-  const gaeguLoaded = await page.evaluate(() =>
-    Array.from(document.fonts).some((f) => f.family.replace(/["']/g, '') === 'Gaegu' && f.status === 'loaded'),
-  );
-  expect(gaeguLoaded, 'Gaegu 웹폰트가 loaded 상태가 아니다').toBe(true);
+  // 쓸 수 없다 — 요청한 얼굴을 직접 로드해 본다.
+  const result = await page.evaluate(async ({ font, text }) => {
+    let loaded = 0;
+    try {
+      loaded = (await document.fonts.load(font, text)).length;
+    } catch {
+      // 로드 실패는 아래 단언이 잡는다.
+    }
+    const errored = Array.from(document.fonts).filter(
+      (f) => f.family.replace(/["']/g, '') === 'Gaegu' && f.status === 'error',
+    ).length;
+    return { loaded, errored };
+  }, need);
+
+  expect(result.loaded, `${need.font} 얼굴을 로드하지 못했다`).toBeGreaterThanOrEqual(1);
+  expect(result.errored, 'Gaegu FontFace 중 error 상태가 있다').toBe(0);
   expect(failed, '폰트·스타일시트 요청이 실패했다').toEqual([]);
 }
 
@@ -58,7 +81,8 @@ const seats = (page: Page) => page.locator('[data-cork="note-seat"]');
 
 test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
   test('컴포넌트 전 상태가 한 화면에 렌더된다 (+ G7 스크린샷)', async ({ page }) => {
-    await gotoWithFonts(page, '/dev/cork');
+    // R51: 이 그림에는 lg 이름표가 들어가므로 700 얼굴까지 보장해야 한다.
+    await gotoWithFonts(page, '/dev/cork', SEAT_LG_FACE);
     await expect(page.locator('[data-page="dev-cork"]')).toBeVisible();
 
     await expect(page.locator('[data-cork="note-seat"][data-state="assigned"]').first()).toBeVisible();
@@ -153,7 +177,7 @@ test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
     });
 
     // R46: 대체 글꼴로 잰 치수는 의미가 없다. 웹폰트가 실제로 적용된 뒤 측정한다.
-    await gotoWithFonts(page, '/dev/cork');
+    await gotoWithFonts(page, '/dev/cork', SEAT_LG_FACE);
     await expect(page.locator('[data-page="dev-cork"]')).toBeVisible();
 
     const big = page.locator('[data-cork="note-seat"][data-size="lg"]').filter({ hasText: '황보아리랑' });

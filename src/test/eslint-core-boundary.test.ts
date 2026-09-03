@@ -12,6 +12,8 @@ async function lintCore(code: string, relPath: string) {
   return results[0]?.messages ?? [];
 }
 
+// R49: 첫 lintText가 ESLint 플러그인·파서를 적재하느라 Windows에서 3~5초 걸려
+// vitest 기본 5000ms를 간헐적으로 넘긴다. 스위트 전체 타임아웃을 올린다.
 describe('eslint core 경계 규칙', () => {
   it("import React from 'react' 를 core에서 막는다", async () => {
     const msgs = await lintCore("import React from 'react';\nexport const v = React.version;\n", 'src/core/x.ts');
@@ -123,4 +125,4 @@ export const y = x;
     const msgs = await lintCore("import React from 'react';\nexport const v = React.version;\n", 'src/pages/x.tsx');
     expect(msgs).toEqual([]);
   });
-});
+}, 20_000);
