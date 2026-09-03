@@ -1,0 +1,80 @@
+{
+  "students": [
+    "김하람", "이도윤", "박서준", "최지우", "정민서", "강예린",
+    "조시우", "윤하은", "임준호", "한유진", "오태윤", "서소율",
+    "신지호", "권다인", "황승우", "안나윤", "송건우", "홍채원",
+    "문은우", "배세아", "노지안", "허리호"
+  ],
+  "classSize": 22,
+  "layoutType": "exam",
+  "layoutSettings": {
+    "columns": 6,
+    "rows": 4,
+    "customDesks": [],
+    "groupSize": 4,
+    "groupCount": 0,
+    "groupSizes": [],
+    "groupLayoutMode": "auto",
+    "groupDesks": [],
+    "disabledSeats": []
+  },
+  "fixedSeats": [
+    { "studentName": "김하람", "seatIndex": 0 }
+  ],
+  "separationRules": [
+    { "studentA": "이도윤", "studentB": "박서준", "minDistance": 2 }
+  ],
+  "lastAssignment": {
+    "mapping": {
+      "0": "김하람",
+      "1": "이도윤",
+      "2": "박서준",
+      "3": "최지우",
+      "4": "정민서",
+      "5": "강예린",
+      "6": "조시우",
+      "7": "윤하은",
+      "8": "임준호",
+      "9": "한유진",
+      "10": "오태윤",
+      "11": "서소율",
+      "12": "신지호",
+      "13": "권다인",
+      "14": "황승우",
+      "15": "안나윤",
+      "16": "송건우",
+      "17": "홍채원",
+      "18": "문은우",
+      "19": "배세아",
+      "20": "노지안",
+      "21": "허리호"
+    },
+    "timestamp": 1735689600000,
+    "date": "2025-01-01"
+  },
+  "studentGenders": {
+    "김하람": "F",
+    "이도윤": "M",
+    "박서준": "M",
+    "최지우": "F",
+    "정민서": "F"
+  },
+  "genderRule": "none",
+  "assignmentHistory": [
+    {
+      "mapping": {
+        "0": "이도윤",
+        "1": "김하람",
+        "2": "최지우"
+      },
+      "timestamp": 1735603200000,
+      "date": "2024-12-31"
+    }
+  ],
+  "historyExcludeCount": 2,
+  "useHistoryExclusion": true,
+  "viewPerspective": "student",
+  "groupHistory": [],
+  "useGroupExclusion": true,
+  "groupExcludeCount": 1
+}

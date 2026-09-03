@@ -1,0 +1,79 @@
+{
+  "students": [
+    "김하람", "이도윤", "박서준", "최지우", "정민서", "강예린",
+    "조시우", "윤하은", "임준호", "한유진", "오태윤", "서소율",
+    "신지호", "권다인", "황승우", "안나윤", "송건우", "홍채원",
+    "문은우", "배세아", "노지안", "허리호"
+  ],
+  "classSize": 22,
+  "layoutType": "group",
+  "layoutSettings": {
+    "columns": 6,
+    "rows": 5,
+    "customDesks": [],
+    "groupSize": 4,
+    "groupCount": 6,
+    "groupSizes": [4, 4, 4, 4, 4, 2],
+    "groupLayoutMode": "auto",
+    "groupDesks": [],
+    "disabledSeats": []
+  },
+  "fixedSeats": [],
+  "separationRules": [
+    { "studentA": "조시우", "studentB": "윤하은", "minDistance": 3 }
+  ],
+  "lastAssignment": null,
+  "studentGenders": {
+    "김하람": "F",
+    "이도윤": "M"
+  },
+  "genderRule": "mixed",
+  "assignmentHistory": [
+    {
+      "mapping": { "0": "김하람", "1": "이도윤", "2": "박서준" },
+      "timestamp": 1735430400000,
+      "date": "2024-12-29"
+    },
+    {
+      "mapping": { "0": "박서준", "1": "김하람", "2": "이도윤" },
+      "timestamp": 1735516800000,
+      "date": "2024-12-30"
+    },
+    {
+      "mapping": { "0": "이도윤", "1": "박서준", "2": "김하람" },
+      "timestamp": 1735603200000,
+      "date": "2024-12-31"
+    }
+  ],
+  "historyExcludeCount": 3,
+  "useHistoryExclusion": true,
+  "viewPerspective": "student",
+  "groupHistory": [
+    {
+      "groups": [
+        ["김하람", "이도윤", "박서준", "최지우"],
+        ["정민서", "강예린", "조시우", "윤하은"],
+        ["임준호", "한유진", "오태윤", "서소율"],
+        ["신지호", "권다인", "황승우", "안나윤"],
+        ["송건우", "홍채원", "문은우", "배세아"],
+        ["노지안", "허리호"]
+      ],
+      "timestamp": 1735516800000,
+      "date": "2024-12-30"
+    },
+    {
+      "groups": [
+        ["최지우", "박서준", "이도윤", "김하람"],
+        ["윤하은", "조시우", "강예린", "정민서"],
+        ["서소율", "오태윤", "한유진", "임준호"],
+        ["안나윤", "황승우", "권다인", "신지호"],
+        ["배세아", "문은우", "홍채원", "송건우"],
+        ["허리호", "노지안"]
+      ],
+      "timestamp": 1735603200000,
+      "date": "2024-12-31"
+    }
+  ],
+  "useGroupExclusion": true,
+  "groupExcludeCount": 2
+}

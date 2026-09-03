@@ -1,0 +1,44 @@
+{
+  "__proto__": { "polluted": true },
+  "students": [
+    "김하람", "이도윤", "박서준", "최지우", "정민서", "강예린",
+    "조시우", "윤하은", "임준호", "한유진", "오태윤", "서소율",
+    "신지호", "권다인", "황승우", "안나윤", "송건우", "홍채원"
+  ],
+  "classSize": 18,
+  "layoutType": "custom",
+  "layoutSettings": {
+    "columns": 6,
+    "rows": 5,
+    "customDesks": [
+      { "x": 40, "y": 40 }, { "x": 160, "y": 40 }, { "x": 280, "y": 40 }, { "x": 400, "y": 40 },
+      { "x": 40, "y": 140 }, { "x": 160, "y": 140 }, { "x": 280, "y": 140 }, { "x": 400, "y": 140 },
+      { "x": 40, "y": 240 }, { "x": 160, "y": 240 }, { "x": 280, "y": 240 }, { "x": 400, "y": 240 },
+      { "x": 40, "y": 340 }, { "x": 160, "y": 340 }, { "x": 280, "y": 340 }, { "x": 400, "y": 340 },
+      { "x": 40, "y": 440 }, { "x": 160, "y": 440 }, { "x": 280, "y": 440 }, { "x": 400, "y": 440 }
+    ],
+    "groupSize": 4,
+    "groupCount": 0,
+    "groupSizes": [],
+    "groupLayoutMode": "auto",
+    "groupDesks": [],
+    "disabledSeats": [1, 2]
+  },
+  "fixedSeats": [
+    { "studentName": "최지우", "seatIndex": 5 }
+  ],
+  "separationRules": [],
+  "lastAssignment": null,
+  "studentGenders": {
+    "최지우": "F",
+    "임준호": "M"
+  },
+  "genderRule": "none",
+  "assignmentHistory": [],
+  "historyExcludeCount": 1,
+  "useHistoryExclusion": false,
+  "viewPerspective": "teacher",
+  "groupHistory": [],
+  "useGroupExclusion": true,
+  "groupExcludeCount": 1
+}

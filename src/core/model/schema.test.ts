@@ -93,3 +93,20 @@ describe('ClassDataSchema Assignment 키 검증 (R55)', () => {
     }
   });
 });
+
+// R76: 명단에 같은 이름이 두 번 들어오면 실패시킨다.
+// 이름이 곧 학생 식별자이므로(고정석·분리규칙·성별이 모두 이름으로 참조한다)
+// 중복은 배치기가 한 사람을 두 자리에 앉히거나 규칙을 엉뚱한 학생에게 적용하게 만든다.
+describe('ClassDataSchema students 중복 (R76)', () => {
+  it('중복된 학생 이름은 실패', () => {
+    const d = createDefaultData();
+    d.students = ['김하람', '이도윤', '김하람'];
+    expect(ClassDataSchema.safeParse(d).success).toBe(false);
+  });
+
+  it('중복이 없으면 통과', () => {
+    const d = createDefaultData();
+    d.students = ['김하람', '이도윤'];
+    expect(ClassDataSchema.safeParse(d).success).toBe(true);
+  });
+});

@@ -48,7 +48,20 @@ const count123 = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
 export const ClassDataSchema = z.object({
   schemaVersion: z.literal(2),
-  students: z.array(z.string().min(1).max(LIMITS.MAX_NAME)).max(LIMITS.MAX_STUDENTS),
+  // R76: 이름이 곧 학생 식별자다(고정석·분리규칙·성별이 모두 이름으로 참조한다).
+  // 중복 이름은 배치기가 한 사람을 두 자리에 앉히거나 규칙을 엉뚱한 학생에게 적용하게 만든다.
+  students: z
+    .array(z.string().min(1).max(LIMITS.MAX_NAME))
+    .max(LIMITS.MAX_STUDENTS)
+    .superRefine((names, ctx) => {
+      const seen = new Set<string>();
+      names.forEach((name, i) => {
+        if (seen.has(name)) {
+          ctx.addIssue({ code: 'custom', message: `중복된 학생 이름: ${name}`, path: [i] });
+        }
+        seen.add(name);
+      });
+    }),
   classSize: z.number().int().min(0),
   layoutType: z.enum(['exam', 'pair', 'ushape', 'custom', 'group']),
   layoutSettings: z.object({
