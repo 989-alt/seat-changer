@@ -17,7 +17,8 @@ const Desk = z.object({ x: z.number(), y: z.number() });
 // R55: '0' 또는 선행 0 없는 자연수 문자열만 정규 좌석 키로 인정한다.
 // '', ' 1 ', '1e2', '01', '-1'과 안전정수 범위를 벗어나는 값은 모두 거부해
 // safeParse가 실패하도록 한다(조용히 버려지지 않음).
-const ASSIGNMENT_KEY_PATTERN = /^(0|[1-9]\d*)$/;
+// migrate.ts도 같은 패턴을 쓰므로 여기서 한 번만 정의한다.
+export const ASSIGNMENT_KEY_PATTERN = /^(0|[1-9]\d*)$/;
 
 const Assignment = z
   .record(z.string(), z.string())

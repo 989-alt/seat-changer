@@ -19,7 +19,7 @@ import type {
   SeparationRule,
 } from './types';
 import { createDefaultData } from './defaults';
-import { ClassDataSchema, sanitizeStudents } from './schema';
+import { ASSIGNMENT_KEY_PATTERN, ClassDataSchema, sanitizeStudents } from './schema';
 
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -54,15 +54,16 @@ function isNonEmptyString(v: unknown): v is string {
 }
 
 /**
- * 레거시 `Math.max(min, Math.min(max, parseInt(raw) || fallback))`의 이식.
- * 차이 1건: 레거시는 음수를 하한(min)으로 접었지만 여기서는 0 이하·비수치를 모두
- * 기본값으로 되돌린다(브리핑 Step 2의 `rows: -1 → 5`). 실제 v1 데이터에는 음수 격자가
- * 없고, 음수는 "값 없음"에 가깝다고 보는 편이 교사에게 덜 놀랍다.
+ * R2: 레거시 `Math.max(min, Math.min(max, parseInt(raw) || fallback))`을 그대로 옮긴다.
+ * 0·비수치는 기본값으로, 음수는 하한(min)으로 접힌다.
+ * R82: 레거시는 parseInt에 값을 그대로 넘겨 문자열화했지만, 프로토타입이 없는 객체
+ * (sanitizeObj/stripDangerousKeys의 결과)는 toString이 없어 문자열화 자체가 던진다.
+ * 숫자·문자열만 parseInt로 보내고 나머지는 기본값으로 되돌린다.
  */
 function intField(raw: unknown, fallback: number, min: number, max: number): number {
-  const n = parseInt(String(raw), 10);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.max(min, Math.min(max, n));
+  const n = typeof raw === 'number' || typeof raw === 'string' ? parseInt(String(raw), 10) : NaN;
+  const base = Number.isFinite(n) && n !== 0 ? n : fallback;
+  return Math.max(min, Math.min(max, base));
 }
 
 function pick<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
@@ -85,7 +86,7 @@ function groupPositions(raw: unknown): GroupPosition[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   return raw
     .map((p) => asRecord(p))
-    .filter((p) => Number.isInteger(p.groupIndex) && isFiniteNumber(p.x) && isFiniteNumber(p.y))
+    .filter((p) => Number.isSafeInteger(p.groupIndex) && isFiniteNumber(p.x) && isFiniteNumber(p.y))
     .map((p) => ({ groupIndex: p.groupIndex as number, x: p.x as number, y: p.y as number }))
     .slice(0, 50);
 }
@@ -96,7 +97,7 @@ function disabledSeats(raw: unknown): number[] {
   const seen = new Set<number>();
   const out: number[] = [];
   for (const n of asArray(raw)) {
-    if (!Number.isInteger(n) || (n as number) < 0 || (n as number) >= 1000) continue;
+    if (!Number.isSafeInteger(n) || (n as number) < 0 || (n as number) >= 1000) continue;
     if (seen.has(n as number)) continue;
     seen.add(n as number);
     out.push(n as number);
@@ -112,7 +113,7 @@ function fixedSeats(raw: unknown): FixedSeat[] {
   for (const entry of asArray(raw)) {
     const f = asRecord(entry);
     if (!isNonEmptyString(f.studentName)) continue;
-    if (!Number.isInteger(f.seatIndex) || (f.seatIndex as number) < 0) continue;
+    if (!Number.isSafeInteger(f.seatIndex) || (f.seatIndex as number) < 0) continue;
     const seatIndex = f.seatIndex as number;
     if (seats.has(seatIndex) || names.has(f.studentName)) continue;
     seats.add(seatIndex);
@@ -135,9 +136,8 @@ function separationRules(raw: unknown): SeparationRule[] {
     .slice(0, 50);
 }
 
-// R55: '0' 또는 선행 0 없는 자연수 문자열만 좌석 키로 인정한다(스키마와 같은 규칙).
-const ASSIGNMENT_KEY_PATTERN = /^(0|[1-9]\d*)$/;
-
+// R55: '0' 또는 선행 0 없는 자연수 문자열만 좌석 키로 인정한다.
+// 패턴은 schema.ts에서 가져온다(단일 출처).
 function assignmentMapping(raw: unknown): Assignment {
   const out: Assignment = {};
   for (const [k, v] of Object.entries(asRecord(raw))) {
@@ -190,8 +190,11 @@ function studentGenders(raw: unknown): Record<string, Gender> {
 }
 
 /**
- * v1 또는 v2 객체를 v2 ClassData로 정규화한다. 어떤 입력에도 던지지 않고
- * 유효한 ClassData를 돌려준다(마지막 ClassDataSchema.parse 실패는 이 함수의 버그다).
+ * v1 또는 v2 객체를 v2 ClassData로 정규화한다. 값이 이상하면 버리거나 접어서
+ * 유효한 ClassData를 만든다(마지막 ClassDataSchema.parse 실패는 이 함수의 버그다).
+ *
+ * 던질 수 있는 경우: 병적으로 깊게 중첩된 입력에서 stripDangerousKeys 재귀가
+ * 스택을 넘길 때뿐이다. 호출자(loadClassData·importClassJSON)가 try/catch로 받는다.
  */
 export function migrateToV2(input: unknown): ClassData {
   const parsed = asRecord(stripDangerousKeys(input));
@@ -244,17 +247,21 @@ export type LoadResult =
   | { ok: true; data: ClassData; migrated: boolean }
   | { ok: false; data: ClassData; error: string };
 
+// 저장 데이터를 읽지 못했을 때의 사용자 문구. 원문 예외 메시지는 노출하지 않는다.
+const LOAD_UNREADABLE = '저장된 데이터를 읽지 못했습니다.';
+
 export function loadClassData(raw: string | null): LoadResult {
   if (raw === null) return { ok: false, data: createDefaultData(), error: '저장된 데이터가 없습니다.' };
   try {
-    const parsed = stripDangerousKeys(JSON.parse(raw));
-    const migrated = !(
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      (parsed as { schemaVersion?: number }).schemaVersion === 2
-    );
+    // stripDangerousKeys는 migrateToV2가 한 번만 수행한다(중복 순회 방지).
+    const parsed: unknown = JSON.parse(raw);
+    // 객체가 아니면(null·배열·수·문자열) 반 데이터가 아니다. 빈 반으로 되살리지 않고 실패로 알린다.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { ok: false, data: createDefaultData(), error: LOAD_UNREADABLE };
+    }
+    const migrated = (parsed as { schemaVersion?: number }).schemaVersion !== 2;
     return { ok: true, data: migrateToV2(parsed), migrated };
-  } catch (e) {
-    return { ok: false, data: createDefaultData(), error: e instanceof Error ? e.message : String(e) };
+  } catch {
+    return { ok: false, data: createDefaultData(), error: LOAD_UNREADABLE };
   }
 }

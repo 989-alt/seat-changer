@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { ClassData } from './types';
 import { migrateToV2, loadClassData, stripDangerousKeys } from './migrate';
 import { ClassDataSchema } from './schema';
 import { createDefaultData } from './defaults';
@@ -19,10 +20,32 @@ describe('stripDangerousKeys', () => {
 });
 
 describe('migrateToV2', () => {
-  it.each(['v1-basic.json', 'v1-group-history.json', 'v1-custom-disabled.json'])('%s → 유효한 v2', (f) => {
+  // migrateToV2는 내부에서 ClassDataSchema.parse를 통과한 값만 돌려주므로
+  // safeParse(out).success는 항상 true다(동어반복). 필드 값을 직접 확인한다.
+  it.each([
+    ['v1-basic.json', { layoutType: 'exam', students: 22, columns: 6, rows: 4, fixedSeats: 1, history: 1 }],
+    ['v1-group-history.json', { layoutType: 'group', students: 22, columns: 6, rows: 5, fixedSeats: 0, history: 3 }],
+    ['v1-custom-disabled.json', { layoutType: 'custom', students: 18, columns: 6, rows: 5, fixedSeats: 1, history: 0 }],
+  ] as const)('%s → 유효한 v2', (f, want) => {
     const out = migrateToV2(JSON.parse(fx(f)));
     expect(out.schemaVersion).toBe(2);
-    expect(ClassDataSchema.safeParse(out).success).toBe(true);
+    expect(out.layoutType).toBe(want.layoutType);
+    expect(out.students).toHaveLength(want.students);
+    expect(out.classSize).toBe(want.students);
+    expect(out.layoutSettings.columns).toBe(want.columns);
+    expect(out.layoutSettings.rows).toBe(want.rows);
+    expect(out.fixedSeats).toHaveLength(want.fixedSeats);
+    expect(out.assignmentHistory).toHaveLength(want.history);
+  });
+
+  it('v1-custom-disabled.json의 __proto__는 프로토타입을 오염시키지 않는다', () => {
+    const out = migrateToV2(JSON.parse(fx('v1-custom-disabled.json')));
+    expect((Object.prototype as unknown as { polluted?: unknown }).polluted).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).toBe(false);
+    expect(Object.keys(out)).not.toContain('__proto__');
+    expect(out.layoutSettings.customDesks).toHaveLength(20);
+    expect(out.layoutSettings.disabledSeats).toEqual([1, 2]);
+    expect(out.viewPerspective).toBe('teacher');
   });
   it('학생·규칙·이력이 보존된다', () => {
     const src = JSON.parse(fx('v1-basic.json'));
@@ -32,12 +55,33 @@ describe('migrateToV2', () => {
     expect(out.separationRules).toEqual(src.separationRules);
     expect(out.lastAssignment?.mapping).toEqual(src.lastAssignment.mapping);
   });
+  // R2: 레거시 importJSON과 동일한 clamp. 음수는 기본값이 아니라 하한으로 접힌다
+  // (`Math.max(1, Math.min(12, parseInt(x) || 기본))`).
   it('범위 밖 값은 기본값·상한으로', () => {
     const out = migrateToV2({ layoutSettings: { columns: 99, rows: -1, disabledSeats: [1, 'x', 5000] }, historyExcludeCount: 9 });
     expect(out.layoutSettings.columns).toBe(12);
-    expect(out.layoutSettings.rows).toBe(5);
+    expect(out.layoutSettings.rows).toBe(1);
     expect(out.layoutSettings.disabledSeats).toEqual([1]);
     expect(out.historyExcludeCount).toBe(1);
+  });
+  it('R2: 음수는 레거시처럼 하한으로 접는다', () => {
+    const out = migrateToV2({
+      layoutSettings: { columns: -3, rows: -1, groupSize: -1, groupSizes: [-2], groupCount: -5 },
+      separationRules: [{ studentA: '김하람', studentB: '이도윤', minDistance: -4 }],
+    });
+    expect(out.layoutSettings.columns).toBe(1);
+    expect(out.layoutSettings.rows).toBe(1);
+    expect(out.layoutSettings.groupSize).toBe(2);
+    expect(out.layoutSettings.groupSizes).toEqual([1]);
+    expect(out.layoutSettings.groupCount).toBe(0);
+    expect(out.separationRules[0]?.minDistance).toBe(1);
+  });
+  it('R2: 0·비수치는 레거시처럼 기본값으로', () => {
+    const out = migrateToV2({ layoutSettings: { columns: 0, rows: 'abc', groupSize: null, groupSizes: [0, 'x'] } });
+    expect(out.layoutSettings.columns).toBe(6);
+    expect(out.layoutSettings.rows).toBe(5);
+    expect(out.layoutSettings.groupSize).toBe(4);
+    expect(out.layoutSettings.groupSizes).toEqual([4, 4]);
   });
   it('이미 v2면 그대로', () => {
     const v2 = migrateToV2(JSON.parse(fx('v1-basic.json')));
@@ -77,6 +121,19 @@ describe('loadClassData 부가', () => {
     const v2 = migrateToV2(JSON.parse(fx('v1-basic.json')));
     expect(loadClassData(JSON.stringify(v2))).toMatchObject({ ok: true, migrated: false });
   });
+  // 객체가 아닌 JSON은 반 데이터가 아니다. 조용히 빈 반으로 되살리지 않고 실패로 알린다.
+  it.each(['null', '[]', '1', '"x"'])('객체가 아닌 JSON %s → ok:false, 기본값', (raw) => {
+    const r = loadClassData(raw);
+    expect(r.ok).toBe(false);
+    expect(r.data).toEqual(createDefaultData());
+    expect(r.ok === false && r.error.length > 0).toBe(true);
+  });
+  it('오류 메시지는 한국어 사용자 문구다(원문 예외 메시지 노출 금지)', () => {
+    const r = loadClassData('{oops');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe('저장된 데이터를 읽지 못했습니다.');
+  });
   it('ok:false여도 data는 유효한 기본값', () => {
     const r = loadClassData(null);
     expect(ClassDataSchema.safeParse(r.data).success).toBe(true);
@@ -101,7 +158,6 @@ describe('스키마 강화 지점 정규화', () => {
       { studentName: '김하람', seatIndex: 0 },
       { studentName: '이도윤', seatIndex: 4 },
     ]);
-    expect(ClassDataSchema.safeParse(out).success).toBe(true);
   });
 
   it('R55: 정규 형식이 아닌 좌석 키는 버린다', () => {
@@ -112,7 +168,6 @@ describe('스키마 강화 지점 정규화', () => {
     });
     expect(out.lastAssignment?.mapping).toEqual({ 0: '김하람' });
     expect(out.assignmentHistory[0]?.mapping).toEqual({ 10: '김하람' });
-    expect(ClassDataSchema.safeParse(out).success).toBe(true);
   });
 
   it('R59: disabledSeats는 정수·범위·중복을 정리한다', () => {
@@ -124,7 +179,6 @@ describe('스키마 강화 지점 정규화', () => {
     const out = migrateToV2({ students: ['김하람', '이도윤', '김하람', ' 이도윤 ', '박서준'] });
     expect(out.students).toEqual(['김하람', '이도윤', '박서준']);
     expect(out.classSize).toBe(3);
-    expect(ClassDataSchema.safeParse(out).success).toBe(true);
   });
 
   it('성별·모둠 배치 모드 등 열거형 밖 값은 버리거나 기본값으로', () => {
@@ -144,24 +198,108 @@ describe('스키마 강화 지점 정규화', () => {
   });
 });
 
+// R82: 필드 하나가 망가졌다고 반 전체를 버리지 않는다.
+// migrateToV2가 내부에서 parse를 통과시키므로 safeParse(out).success 검사는 동어반복이다.
+// 대신 정규화된 값을 직접 확인하고, 결과가 기본값(=반이 통째로 날아간 상태)이 아닌지 본다.
 describe('망가진 입력에도 던지지 않는다', () => {
-  const junk: unknown[] = [
-    null,
-    undefined,
-    0,
-    'string',
-    [],
-    [1, 2, 3],
-    {},
-    { students: 'not-an-array', layoutSettings: 7 },
-    { students: [null, 1, {}, '   ', '<김하람>'], fixedSeats: 'x', separationRules: {}, studentGenders: [] },
-    { layoutSettings: { customDesks: [{ x: 'a', y: 1 }, null, { x: 1, y: 2 }], groupDesks: 'x', groupPositions: [{ groupIndex: 1.5, x: 0, y: 0 }, { groupIndex: 0, x: 1, y: 2 }] } },
-    { lastAssignment: 'nope', assignmentHistory: [null, { mapping: null, timestamp: 'x' }], groupHistory: [{ groups: [['김하람'], 'x'], timestamp: 1 }] },
-    { layoutSettings: { groupSizes: [9, 0, -3, '4'], groupCount: 999, groupSize: 99 } },
+  const junk: { name: string; input: unknown; check?: (out: ClassData) => void }[] = [
+    { name: 'null', input: null },
+    { name: 'undefined', input: undefined },
+    { name: '숫자', input: 0 },
+    { name: '문자열', input: 'string' },
+    { name: '빈 배열', input: [] },
+    { name: '숫자 배열', input: [1, 2, 3] },
+    { name: '빈 객체', input: {} },
+    {
+      name: '필드 타입 뒤바뀜',
+      input: { students: 'not-an-array', layoutSettings: 7 },
+      check: (o) => {
+        expect(o.students).toEqual([]);
+        expect(o.layoutSettings.columns).toBe(6);
+      },
+    },
+    {
+      name: '명단·규칙 잡동사니',
+      input: { students: [null, 1, {}, '   ', '<김하람>', '이도윤'], fixedSeats: 'x', separationRules: {}, studentGenders: [] },
+      check: (o) => {
+        expect(o.students).toEqual(['김하람', '이도윤']);
+        expect(o.fixedSeats).toEqual([]);
+        expect(o.separationRules).toEqual([]);
+        expect(o.studentGenders).toEqual({});
+      },
+    },
+    {
+      name: '책상·모둠 위치 잡동사니',
+      input: { layoutSettings: { customDesks: [{ x: 'a', y: 1 }, null, { x: 1, y: 2 }], groupDesks: 'x', groupPositions: [{ groupIndex: 1.5, x: 0, y: 0 }, { groupIndex: 0, x: 1, y: 2 }] } },
+      check: (o) => {
+        expect(o.layoutSettings.customDesks).toEqual([{ x: 1, y: 2 }]);
+        expect(o.layoutSettings.groupDesks).toEqual([]);
+        expect(o.layoutSettings.groupPositions).toEqual([{ groupIndex: 0, x: 1, y: 2 }]);
+      },
+    },
+    {
+      name: '이력 잡동사니',
+      input: { lastAssignment: 'nope', assignmentHistory: [null, { mapping: null, timestamp: 'x' }], groupHistory: [{ groups: [['김하람'], 'x'], timestamp: 1 }] },
+      check: (o) => {
+        expect(o.lastAssignment).toBeNull();
+        expect(o.assignmentHistory).toEqual([]);
+        expect(o.groupHistory).toEqual([{ groups: [['김하람']], timestamp: 1 }]);
+      },
+    },
+    {
+      name: '모둠 수치 범위 밖',
+      input: { layoutSettings: { groupSizes: [9, 0, -3, '4'], groupCount: 999, groupSize: 99 } },
+      check: (o) => {
+        expect(o.layoutSettings.groupSizes).toEqual([8, 4, 1, 4]);
+        expect(o.layoutSettings.groupCount).toBe(20);
+        expect(o.layoutSettings.groupSize).toBe(8);
+      },
+    },
+    // R82-1: 객체가 수치 필드에 들어와도 parseInt 앞에서 문자열화하다 터지면 안 된다.
+    {
+      name: '수치 필드에 객체',
+      input: { students: ['김하람'], layoutSettings: { columns: {}, rows: [], groupSize: { a: 1 }, groupSizes: [{}, 3] } },
+      check: (o) => {
+        expect(o.students).toEqual(['김하람']);
+        expect(o.layoutSettings.columns).toBe(6);
+        expect(o.layoutSettings.rows).toBe(5);
+        expect(o.layoutSettings.groupSize).toBe(4);
+        expect(o.layoutSettings.groupSizes).toEqual([4, 3]);
+      },
+    },
+    {
+      name: 'minDistance에 객체',
+      input: { students: ['A', 'B'], separationRules: [{ studentA: 'A', studentB: 'B', minDistance: {} }] },
+      check: (o) => expect(o.separationRules).toEqual([{ studentA: 'A', studentB: 'B', minDistance: 1 }]),
+    },
+    // R82-2: 안전정수 범위를 벗어난 값은 스키마의 z.number().int()를 통과하지 못한다.
+    {
+      name: '안전정수 밖 seatIndex',
+      input: { students: ['A'], fixedSeats: [{ studentName: 'A', seatIndex: 1e21 }, { studentName: 'A', seatIndex: 2 }] },
+      check: (o) => expect(o.fixedSeats).toEqual([{ studentName: 'A', seatIndex: 2 }]),
+    },
+    {
+      name: '안전정수 밖 groupIndex·disabledSeats',
+      input: { layoutSettings: { groupPositions: [{ groupIndex: 1e21, x: 0, y: 0 }], disabledSeats: [1e21, 2] } },
+      check: (o) => {
+        expect(o.layoutSettings.groupPositions).toEqual([]);
+        expect(o.layoutSettings.disabledSeats).toEqual([2]);
+      },
+    },
+    // 널 프로토타입 객체(레거시 sanitizeObj 결과)도 그대로 들어올 수 있다.
+    {
+      name: '널 프로토타입 객체',
+      input: stripDangerousKeys(JSON.parse('{"students":["김하람"],"layoutSettings":{"columns":{"__proto__":null}}}')),
+      check: (o) => {
+        expect(o.students).toEqual(['김하람']);
+        expect(o.layoutSettings.columns).toBe(6);
+      },
+    },
   ];
-  it.each(junk.map((v, i) => [i, v] as const))('입력 %i → 유효한 v2', (_i, v) => {
-    const out = migrateToV2(v);
-    expect(ClassDataSchema.safeParse(out).success).toBe(true);
+  it.each(junk.map((j) => [j.name, j] as const))('입력 %s → 유효한 v2', (_name, j) => {
+    const out = migrateToV2(j.input);
+    expect(out.schemaVersion).toBe(2);
+    j.check?.(out);
     // 자기 자신에 대해 멱등이다.
     expect(migrateToV2(out)).toEqual(out);
   });

@@ -1,12 +1,13 @@
 // 반 설정 파일 내보내기·가져오기. 이식 원본: legacy/js/data/store.js:165-217
 import type { ClassData } from '../model/types';
-import { migrateToV2, stripDangerousKeys } from '../model/migrate';
+import { migrateToV2 } from '../model/migrate';
 
 export const exportClassJSON = (data: ClassData): string => JSON.stringify(data, null, 2);
 
 export function importClassJSON(json: string): { ok: true; data: ClassData } | { ok: false; error: string } {
   try {
-    const parsed = stripDangerousKeys(JSON.parse(json));
+    // 위험 키 제거(stripDangerousKeys)는 migrateToV2가 한 번만 수행한다.
+    const parsed: unknown = JSON.parse(json);
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       return { ok: false, error: '자리바꾸기 설정 파일이 아닙니다.' };
     }
