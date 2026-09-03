@@ -6,9 +6,11 @@ export function createMemoryAdapter(initial: Record<string, string> = {}): Stora
     get: (k) => m.get(k) ?? null,
     set: (k, v) => {
       m.set(k, v);
+      return true;
     },
     remove: (k) => {
       m.delete(k);
+      return true;
     },
   };
 }

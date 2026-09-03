@@ -14,15 +14,18 @@ export function createLocalStorageAdapter(storage: Storage): StorageAdapter {
     set: (k, v) => {
       try {
         storage.setItem(k, v);
+        return true;
       } catch {
-        // 용량 초과 등: 호출자가 토스트 등으로 처리
+        // 용량 초과 등: 호출자(레지스트리)가 false를 보고 롤백/실패 처리
+        return false;
       }
     },
     remove: (k) => {
       try {
         storage.removeItem(k);
+        return true;
       } catch {
-        // noop
+        return false;
       }
     },
   };
