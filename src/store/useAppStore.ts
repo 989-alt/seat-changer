@@ -8,12 +8,21 @@ import { LIMITS } from '@/core/model/defaults';
 import { sanitizeStudents } from '@/core/model/schema';
 import { loadClassData } from '@/core/model/migrate';
 import type { StorageAdapter } from '@/core/storage/adapter';
-import { createClassRegistry, dataKey } from '@/core/storage/classes';
+import { createClassRegistry, dataKey, KEYS } from '@/core/storage/classes';
 import { createLocalStorageAdapter } from '@/core/storage/localStorageAdapter';
 import { createMemoryAdapter } from '@/core/storage/memoryAdapter';
 import { exportClassJSON, importClassJSON } from '@/core/storage/json';
 import { getLayout } from '@/core/layouts';
 import { groupLayout } from '@/core/layouts/group';
+
+/**
+ * storage 이벤트를 등록/해제할 수 있는 대상. 브라우저의 window가 기본이지만,
+ * 테스트에서는 가짜 EventTarget을 넘길 수 있도록 구조적 타입으로 둔다.
+ */
+export interface StorageSyncTarget {
+  addEventListener(type: 'storage', listener: (e: StorageEvent) => void): void;
+  removeEventListener(type: 'storage', listener: (e: StorageEvent) => void): void;
+}
 
 export interface AppState {
   classes: string[];
@@ -39,6 +48,17 @@ export interface AppState {
   exportJSON(): string;
   importJSON(json: string): { ok: boolean; error?: string };
   clearNotice(): void;
+  /**
+   * 다른 탭이 바꾼 저장 데이터를 다시 읽어 온다(쓰지 않고 읽기만). 부팅/반 전환과
+   * 같은 loadFor 경로를 타므로 v1 페이로드는 마이그레이션되고 한 번만 다시 쓰인다(R85).
+   * Undo 스택은 비운다. legacy/js/data/store.js:219-234 initSync의 v2 동등물(R88).
+   */
+  reloadFromStorage(): void;
+  /**
+   * storage 이벤트를 구독해 반 목록·활성 반·활성 반 데이터 키가 바뀌면
+   * reloadFromStorage()를 부른다. 해제 함수를 돌려준다.
+   */
+  attachStorageSync(target: StorageSyncTarget): () => void;
 }
 
 // 사용자 안내 문구
@@ -375,6 +395,28 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
       },
 
       clearNotice: () => set({ loadNotice: null }),
+
+      // 다른 탭 변경 반영. applyClass는 registry.list()/registry.active()를 다시 읽고
+      // loadFor로 로드하므로, CLASSES/ACTIVE가 바뀐 경우 그 반으로도 전환된다.
+      reloadFromStorage: () => {
+        applyClass(registry.active());
+      },
+
+      attachStorageSync: (target) => {
+        const listener = (e: StorageEvent) => {
+          const key = e.key;
+          if (
+            key === null ||
+            key === KEYS.CLASSES ||
+            key === KEYS.ACTIVE ||
+            key === dataKey(get().activeClass)
+          ) {
+            get().reloadFromStorage();
+          }
+        };
+        target.addEventListener('storage', listener);
+        return () => target.removeEventListener('storage', listener);
+      },
     };
   };
 
@@ -415,6 +457,11 @@ function createBrowserAdapter(): StorageAdapter {
 }
 
 export const useAppStore = createAppStore(createBrowserAdapter());
+
+// 탭 간 동기화(R88): 다른 탭이 반 목록·활성 반·활성 반 데이터를 바꾸면 반영한다.
+if (typeof window !== 'undefined') {
+  useAppStore.getState().attachStorageSync(window);
+}
 
 /** Undo/Redo 상태. 버튼 활성화가 따라오도록 구독한다. */
 export const useTemporal = (): TemporalState<UndoSnapshot> => useStore(useAppStore.temporal);

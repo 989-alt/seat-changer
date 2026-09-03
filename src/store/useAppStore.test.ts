@@ -511,3 +511,99 @@ describe('JSON', () => {
     expect(s().data).toBe(before);
   });
 });
+
+/** storage 이벤트를 흉내 내는 가짜 EventTarget. 등록된 리스너를 직접 붙잡아 dispatch로 호출한다. */
+function fakeEventTarget() {
+  const listeners: Array<(e: StorageEvent) => void> = [];
+  return {
+    addEventListener: (_type: 'storage', l: (e: StorageEvent) => void) => {
+      listeners.push(l);
+    },
+    removeEventListener: (_type: 'storage', l: (e: StorageEvent) => void) => {
+      const i = listeners.indexOf(l);
+      if (i !== -1) listeners.splice(i, 1);
+    },
+    dispatch: (key: string | null) => {
+      const event = { key } as StorageEvent;
+      for (const l of [...listeners]) l(event);
+    },
+  };
+}
+
+describe('탭 간 storage 동기화 (R88, 레거시 initSync 동등)', () => {
+  it('다른 탭이 활성 반 데이터를 바꾼 뒤 reloadFromStorage: 반영되고, Undo 스택은 비워지고, 이미 v2면 다시 쓰지 않는다', () => {
+    const { adapter, store, s, writes, resetWrites } = bootCounting({
+      [KEYS.CLASSES]: '["1반"]',
+      [KEYS.ACTIVE]: '1반',
+    });
+    s().update({ layoutType: 'group' });
+    expect(store.temporal.getState().pastStates.length).toBeGreaterThan(0);
+
+    // 다른 "탭"이 같은 어댑터에 직접 씀 (이미 v2 모양).
+    const external = { ...s().data, students: ['외부탭학생'], classSize: 1 };
+    adapter.set(dataKey('1반'), JSON.stringify(external));
+    resetWrites(); // 지금부터는 reloadFromStorage 자신이 일으키는 쓰기만 센다.
+
+    s().reloadFromStorage();
+
+    expect(s().data.students).toEqual(['외부탭학생']);
+    expect(store.temporal.getState().pastStates).toEqual([]);
+    expect(writes()).toBe(0);
+  });
+
+  it('다른 탭이 v1 페이로드를 쓴 뒤 reloadFromStorage: 마이그레이션되고 정확히 한 번만 다시 쓴다 (R85)', () => {
+    const { adapter, s, writes, resetWrites } = bootCounting({
+      [KEYS.CLASSES]: '["1반"]',
+      [KEYS.ACTIVE]: '1반',
+    });
+    adapter.set(dataKey('1반'), v1);
+    resetWrites(); // 지금부터는 reloadFromStorage 자신이 일으키는 쓰기만 센다.
+
+    s().reloadFromStorage();
+
+    expect(s().data.schemaVersion).toBe(2);
+    expect(s().data.students).toHaveLength(22);
+    expect(writes()).toBe(1);
+  });
+
+  it('다른 탭이 활성 반을 바꾸면(ACTIVE 키) reloadFromStorage가 레지스트리의 현재 활성 반으로 전환한다', () => {
+    const { adapter, s } = boot({ [KEYS.CLASSES]: '["1반","6-7"]', [KEYS.ACTIVE]: '1반' });
+    adapter.set(dataKey('6-7'), JSON.stringify({ ...s().data, students: ['6-7학생'], classSize: 1 }));
+    adapter.set(KEYS.ACTIVE, '6-7');
+
+    s().reloadFromStorage();
+
+    expect(s().activeClass).toBe('6-7');
+    expect(s().data.students).toEqual(['6-7학생']);
+  });
+
+  it('attachStorageSync: 활성 반 데이터 키 변경에는 반응하고, 무관한 키는 무시하며, detach 후에는 반응하지 않는다', () => {
+    const { adapter, s } = boot({ [KEYS.CLASSES]: '["1반"]', [KEYS.ACTIVE]: '1반' });
+    const target = fakeEventTarget();
+    const detach = s().attachStorageSync(target);
+
+    adapter.set(dataKey('1반'), JSON.stringify({ ...s().data, students: ['반영됨'], classSize: 1 }));
+    target.dispatch(dataKey('1반'));
+    expect(s().data.students).toEqual(['반영됨']);
+
+    adapter.set(dataKey('1반'), JSON.stringify({ ...s().data, students: ['무시됨'], classSize: 1 }));
+    target.dispatch('무관한-키');
+    expect(s().data.students).toEqual(['반영됨']);
+
+    detach();
+    adapter.set(dataKey('1반'), JSON.stringify({ ...s().data, students: ['detach후'], classSize: 1 }));
+    target.dispatch(dataKey('1반'));
+    expect(s().data.students).toEqual(['반영됨']);
+  });
+
+  it('attachStorageSync: storage.clear (key === null)에도 반응한다', () => {
+    const { adapter, s } = boot({ [KEYS.CLASSES]: '["1반"]', [KEYS.ACTIVE]: '1반' });
+    const target = fakeEventTarget();
+    s().attachStorageSync(target);
+
+    adapter.set(dataKey('1반'), JSON.stringify({ ...s().data, students: ['클리어반영'], classSize: 1 }));
+    target.dispatch(null);
+
+    expect(s().data.students).toEqual(['클리어반영']);
+  });
+});
