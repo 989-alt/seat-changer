@@ -1,4 +1,4 @@
 {
-  "compilerOptions": { "composite": true, "target": "ES2022", "lib": ["ES2022"], "module": "ESNext", "moduleResolution": "bundler", "strict": true, "skipLibCheck": true, "types": ["node"] },
+  "compilerOptions": { "target": "ES2022", "lib": ["ES2022"], "module": "ESNext", "moduleResolution": "bundler", "strict": true, "skipLibCheck": true, "allowJs": true, "checkJs": false, "types": ["node"] },
   "include": ["vite.config.ts", "playwright.config.ts"]
 }

@@ -26,21 +26,39 @@ function intersect(a: Box, b: Box): Box | null {
   return { x, y, width: right - x, height: bottom - y };
 }
 
-/** 폰트·스타일시트 요청 실패를 모은다. goto 전에 붙여야 한다. */
-function trackAssetFailures(page: Page): string[] {
+/**
+ * 웹폰트가 실제로 적용된 상태로 페이지를 연다.
+ *
+ * R46/R48: `document.fonts.ready`는 폰트 로드가 **실패해도** resolve하므로, 그것만
+ * 기다리면 대체 글꼴로 잰 치수나 찍은 그림이 조용히 통과한다. 테스트마다 page와
+ * 컨텍스트가 따로라 검사를 한 테스트에만 둘 수도 없다. 글꼴에 기대는 테스트는
+ * 전부 이 함수로 연다.
+ */
+async function gotoWithFonts(page: Page, url: string): Promise<void> {
+  // requestfailed 구독은 반드시 goto 전에 붙어야 한다.
   const failed: string[] = [];
   page.on('requestfailed', (r) => {
     const type = r.resourceType();
     if (type === 'font' || type === 'stylesheet') failed.push(`${type} ${r.url()}`);
   });
-  return failed;
+
+  await page.goto(url);
+  await page.evaluate(() => document.fonts.ready);
+
+  // document.fonts.check()는 @font-face 자체가 없으면(스타일시트 실패) true를 돌려줘
+  // 쓸 수 없다 — 적재된 FontFace 목록을 직접 본다.
+  const gaeguLoaded = await page.evaluate(() =>
+    Array.from(document.fonts).some((f) => f.family.replace(/["']/g, '') === 'Gaegu' && f.status === 'loaded'),
+  );
+  expect(gaeguLoaded, 'Gaegu 웹폰트가 loaded 상태가 아니다').toBe(true);
+  expect(failed, '폰트·스타일시트 요청이 실패했다').toEqual([]);
 }
 
 const seats = (page: Page) => page.locator('[data-cork="note-seat"]');
 
 test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
   test('컴포넌트 전 상태가 한 화면에 렌더된다 (+ G7 스크린샷)', async ({ page }) => {
-    await page.goto('/dev/cork');
+    await gotoWithFonts(page, '/dev/cork');
     await expect(page.locator('[data-page="dev-cork"]')).toBeVisible();
 
     await expect(page.locator('[data-cork="note-seat"][data-state="assigned"]').first()).toBeVisible();
@@ -58,14 +76,12 @@ test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
     await expect(seats(page).filter({ hasText: '삭제된 자리' })).toHaveCount(1);
 
     // R44: 뒤 단언이 실패해도 G7이 볼 그림은 남도록 여기서 바로 찍는다.
-    await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: 'test-results/dev-cork.png', fullPage: true });
     await page.screenshot({ path: 'test-results/dev-cork-1080.png', fullPage: false });
   });
 
   test('토큰·질감·글꼴이 실제로 적용된다', async ({ page }) => {
-    const failedAssets = trackAssetFailures(page);
-    await page.goto('/dev/cork');
+    await gotoWithFonts(page, '/dev/cork');
     const root = page.locator('[data-page="dev-cork"]');
     await expect(root).toBeVisible();
 
@@ -77,15 +93,8 @@ test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
     // R20: cork 배경 위 텍스트는 ink여야 한다(paper는 2.57:1로 금지).
     expect(await h1.evaluate((el) => getComputedStyle(el).color)).toBe(INK);
 
-    // R46: 폰트 스택 문자열만으로는 대체 글꼴로 그려져도 통과한다. 실제 로드를 확인한다.
-    // document.fonts.check()는 @font-face 자체가 없으면(스타일시트 실패) true를 돌려주므로
-    // 쓸 수 없다 — 적재된 FontFace 목록을 직접 본다.
-    await page.evaluate(() => document.fonts.ready);
-    const gaeguLoaded = await page.evaluate(() =>
-      Array.from(document.fonts).some((f) => f.family.replace(/["']/g, '') === 'Gaegu' && f.status === 'loaded'),
-    );
-    expect(gaeguLoaded).toBe(true);
-    expect(failedAssets).toEqual([]);
+    // (Gaegu가 실제로 loaded인지, 폰트·스타일시트 요청이 실패하지 않았는지는
+    //  gotoWithFonts가 이미 단언했다. 여기서는 font-family 스택만 확인한다.)
 
     // R33: 강조 링은 gold가 아니라 ink다. Tailwind ring은 box-shadow로 그려진다.
     const highlight = page.locator('[data-cork="note-seat"][data-highlight="true"]').first();
@@ -143,10 +152,9 @@ test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
       if (r.resourceType() === 'image') imageRequests.push(r.url());
     });
 
-    await page.goto('/dev/cork');
+    // R46: 대체 글꼴로 잰 치수는 의미가 없다. 웹폰트가 실제로 적용된 뒤 측정한다.
+    await gotoWithFonts(page, '/dev/cork');
     await expect(page.locator('[data-page="dev-cork"]')).toBeVisible();
-    // R46: 대체 글꼴로 잰 치수는 의미가 없다. 웹폰트가 적용된 뒤 측정한다.
-    await page.evaluate(() => document.fonts.ready);
 
     const big = page.locator('[data-cork="note-seat"][data-size="lg"]').filter({ hasText: '황보아리랑' });
     await expect(big).toHaveCount(1);

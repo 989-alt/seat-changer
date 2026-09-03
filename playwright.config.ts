@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { shouldReuseServer } from './scripts/e2e-env.mjs';
 
 export default defineConfig({
   testDir: 'e2e',
@@ -9,9 +10,8 @@ export default defineConfig({
     // baseURL의 127.0.0.1에 연결되지 않는다.
     command: 'npm run build && npm run preview -- --port 4173 --strictPort --host 127.0.0.1',
     url: 'http://127.0.0.1:4173',
-    // R43: 기본은 항상 새로 빌드·기동한다. 4173에 남은 preview가 낡은 dist/를
-    // 내보내면 게이트가 헛통과하기 때문이다. 반복 실행 시에만 PW_REUSE_SERVER=1.
-    reuseExistingServer: !!process.env.PW_REUSE_SERVER,
+    // R43/R48: 재사용은 PW_REUSE_SERVER=1 센티널로만 켠다(scripts/e2e-env.mjs).
+    reuseExistingServer: shouldReuseServer(process.env),
     timeout: 120_000,
   },
   reporter: [['list']],
