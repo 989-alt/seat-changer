@@ -49,6 +49,12 @@ function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
+/** Date가 표현할 수 있는 범위(±8.64e15ms) 안의 timestamp만 인정한다. 밖이면 `new Date(t).toISOString()`이 RangeError를 던진다 (R87). */
+const MAX_TIMESTAMP_MS = 8.64e15;
+function isValidTimestamp(v: unknown): v is number {
+  return isFiniteNumber(v) && Math.abs(v) <= MAX_TIMESTAMP_MS;
+}
+
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0;
 }
@@ -151,7 +157,7 @@ function assignmentMapping(raw: unknown): Assignment {
 function assignmentRecord(raw: unknown): AssignmentRecord | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
   const r = raw as Rec;
-  if (!isFiniteNumber(r.timestamp)) return null;
+  if (!isValidTimestamp(r.timestamp)) return null;
   const record: AssignmentRecord = { mapping: assignmentMapping(r.mapping), timestamp: r.timestamp };
   if (typeof r.date === 'string') record.date = r.date;
   return record;
@@ -162,7 +168,7 @@ function groupRecords(raw: unknown): GroupRecord[] {
   for (const entry of asArray(raw)) {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
     const g = entry as Rec;
-    if (!isFiniteNumber(g.timestamp)) continue;
+    if (!isValidTimestamp(g.timestamp)) continue;
     const groups = asArray(g.groups)
       .filter((row): row is unknown[] => Array.isArray(row))
       .map((row) => row.filter((s): s is string => typeof s === 'string'));

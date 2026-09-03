@@ -327,3 +327,27 @@ describe('레거시 대조 (legacy/js/data/models.js)', () => {
     expect(out.layoutSettings).toEqual({ ...(legacy.layoutSettings as object) });
   });
 });
+
+describe('Date 범위 밖 timestamp (R87)', () => {
+  it('lastAssignment·이력·모둠 이력의 timestamp가 Date 범위를 넘으면 그 레코드만 버린다', () => {
+    const out = migrateToV2({
+      students: ['가', '나'],
+      lastAssignment: { mapping: { 0: '가', 1: '나' }, timestamp: 1e20 },
+      assignmentHistory: [
+        { mapping: { 0: '가' }, timestamp: 1e20 },
+        { mapping: { 0: '나' }, timestamp: 1700000000000 },
+      ],
+      groupHistory: [
+        { groups: [['가', '나']], timestamp: -1e20 },
+        { groups: [['가'], ['나']], timestamp: 1700000000000 },
+      ],
+    });
+    expect(out.lastAssignment).toBeNull();
+    expect(out.assignmentHistory).toHaveLength(1);
+    expect(out.assignmentHistory[0]?.timestamp).toBe(1700000000000);
+    expect(out.groupHistory).toHaveLength(1);
+    expect(out.groupHistory[0]?.timestamp).toBe(1700000000000);
+    // 살아남은 timestamp는 Date로 변환 가능해야 한다 (스토어 recordAssignment가 toISOString을 호출)
+    expect(() => new Date(out.assignmentHistory[0]!.timestamp).toISOString()).not.toThrow();
+  });
+});
