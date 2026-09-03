@@ -106,12 +106,25 @@ function withUndoMerge(config: AppStateCreator): AppStateCreator {
   };
 }
 
-/** 저장 데이터를 읽어 ClassData와 안내 문구를 만든다. */
+/**
+ * 저장 데이터를 읽어 ClassData와 안내 문구를 만든다.
+ *
+ * R85: 부팅·반 전환(loading=true 구간)은 store.subscribe의 저장 리스너를 타지 않는다
+ * (로드로 인한 변경은 되돌려 쓰지 않는다는 규칙 때문). 그래서 v1을 v2로 마이그레이션한
+ * 결과가 메모리에만 있고 localStorage에는 옛 모양 그대로 남는 경우가 생긴다.
+ * migrated:true일 때 여기서 그 자리에서 한 번만 명시적으로 다시 쓴다. ok:false(깨진
+ * 데이터)이거나 migrated:false(이미 v2)면 쓰지 않는다 — 전자는 복구 기회가 있는 원본을
+ * 건드리지 않기 위해서고, 후자는 애초에 쓸 이유가 없다.
+ * R79: 재저장이 실패하면 SAVE_FAILED가 MIGRATED보다 우선한다 — "잘 옮겼다"는 소식보다
+ * "지금 위험하다"는 소식이 급하다.
+ */
 function loadFor(adapter: StorageAdapter, name: string): { data: ClassData; notice: string | null } {
   const raw = adapter.get(dataKey(name));
   const r = loadClassData(raw);
   if (!r.ok) return { data: r.data, notice: raw === null ? null : NOTICE.UNREADABLE };
-  return { data: r.data, notice: r.migrated ? NOTICE.MIGRATED : null };
+  if (!r.migrated) return { data: r.data, notice: null };
+  const ok = adapter.set(dataKey(name), JSON.stringify(r.data));
+  return { data: r.data, notice: ok ? NOTICE.MIGRATED : NOTICE.SAVE_FAILED };
 }
 
 /** 배치의 원래 좌석 수(비활성 좌석을 빼기 전). deleteSeat의 범위 검사에 쓴다. */

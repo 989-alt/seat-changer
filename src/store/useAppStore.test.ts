@@ -34,6 +34,18 @@ function bootWithFailingDataWrites() {
   };
 }
 
+/** 데이터 키 쓰기가 부팅 시점(생성자 안)부터 실패하는 어댑터. R85 재저장의 실패 경로용. */
+function bootWithFailingDataWritesFromStart(initial: Record<string, string> = {}) {
+  const inner = createMemoryAdapter(initial);
+  const adapter: StorageAdapter = {
+    get: (k) => inner.get(k),
+    set: (k, v) => (k.startsWith(KEYS.DATA_PREFIX) ? false : inner.set(k, v)),
+    remove: (k) => inner.remove(k),
+  };
+  const store = createAppStore(adapter);
+  return { store, s: () => store.getState() };
+}
+
 /** 데이터 키 쓰기 횟수를 세는 어댑터. "변경 1회 = 저장 1회"를 확인한다. */
 function bootCounting(initial: Record<string, string> = {}) {
   const inner = createMemoryAdapter(initial);
@@ -101,6 +113,62 @@ describe('부팅', () => {
   it('부팅은 저장 데이터를 덮어쓰지 않는다', () => {
     const { adapter } = boot({ [KEYS.CLASSES]: '["1반"]', [KEYS.ACTIVE]: '1반', [dataKey('1반')]: '{broken' });
     expect(adapter.get(dataKey('1반'))).toBe('{broken');
+  });
+});
+
+describe('부팅 재저장 (R85)', () => {
+  it('v1 데이터로 부팅하면 그 자리에서 한 번만 v2로 다시 쓴다', () => {
+    const { adapter, writes } = bootCounting({
+      [KEYS.CLASSES]: '["1반"]',
+      [KEYS.ACTIVE]: '1반',
+      [dataKey('1반')]: v1,
+    });
+    expect(writes()).toBe(1);
+    const saved = JSON.parse(adapter.get(dataKey('1반'))!);
+    expect(saved.schemaVersion).toBe(2);
+    expect(saved.students).toHaveLength(22);
+  });
+
+  it('이미 v2인 데이터는 부팅해도 다시 쓰지 않는다', () => {
+    const v2 = JSON.stringify(loadClassData(v1).data);
+    const { writes } = bootCounting({ [KEYS.CLASSES]: '["1반"]', [KEYS.ACTIVE]: '1반', [dataKey('1반')]: v2 });
+    expect(writes()).toBe(0);
+  });
+
+  it('깨진 데이터는 부팅해도 다시 쓰지 않는다(원본을 건드리지 않는다)', () => {
+    const { adapter, writes } = bootCounting({
+      [KEYS.CLASSES]: '["1반"]',
+      [KEYS.ACTIVE]: '1반',
+      [dataKey('1반')]: '{broken',
+    });
+    expect(writes()).toBe(0);
+    expect(adapter.get(dataKey('1반'))).toBe('{broken');
+  });
+
+  it('switchClass로 옮겨간 v1 반도 로드 시점에 한 번만 다시 쓴다', () => {
+    const { adapter, s, writes, resetWrites } = bootCounting({
+      [KEYS.CLASSES]: '["1반","6-7"]',
+      [KEYS.ACTIVE]: '1반',
+      [dataKey('6-7')]: v1,
+    });
+    resetWrites();
+    s().switchClass('6-7');
+    expect(writes()).toBe(1);
+    const saved = JSON.parse(adapter.get(dataKey('6-7'))!);
+    expect(saved.schemaVersion).toBe(2);
+    expect(saved.students).toHaveLength(22);
+  });
+
+  it('재저장이 실패하면 SAVE_FAILED 안내가 MIGRATED보다 우선한다 (R79)', () => {
+    const { s } = bootWithFailingDataWritesFromStart({
+      [KEYS.CLASSES]: '["1반"]',
+      [KEYS.ACTIVE]: '1반',
+      [dataKey('1반')]: v1,
+    });
+    // 메모리 상의 데이터 자체는 정상적으로 마이그레이션되어 있다(쓰기만 실패했다).
+    expect(s().data.schemaVersion).toBe(2);
+    expect(s().data.students).toHaveLength(22);
+    expect(s().loadNotice).toMatch(/저장하지 못했습니다/);
   });
 });
 

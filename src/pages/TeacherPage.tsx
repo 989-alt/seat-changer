@@ -1,23 +1,17 @@
-import { useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 
 /**
  * Phase 2 게이트용 임시 진단 블록. 계획 2에서 실제 화면으로 교체된다.
  *
- * 마운트 시 update({})를 한 번 호출해 store가 부팅 시 메모리에서만
- * 마이그레이션한 데이터를 즉시 localStorage에 다시 쓰게 한다(계획 2의
- * 실제 편집 화면에서는 어떤 조작이든 같은 저장 경로를 자연히 타므로
- * 이 호출은 임시 진단 화면에만 필요하다).
+ * R85: v1 데이터의 마이그레이션 재저장은 store(useAppStore.ts의 loadFor)의
+ * 책임이다. 이 블록은 store가 이미 읽어 둔 상태를 그대로 보여줄 뿐, 저장을
+ * 유발하는 어떤 부수 효과도 갖지 않는다.
  */
 function DiagBlock() {
   const classes = useAppStore((s) => s.classes);
   const activeClass = useAppStore((s) => s.activeClass);
   const students = useAppStore((s) => s.data.students.length);
   const loadNotice = useAppStore((s) => s.loadNotice);
-
-  useEffect(() => {
-    useAppStore.getState().update({});
-  }, []);
 
   return (
     <pre data-testid="diag" className="mt-4 text-ink">
