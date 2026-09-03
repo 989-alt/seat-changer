@@ -14,12 +14,18 @@ export type AdjacencyMap = Record<number, number[]>;
 /**
  * 분리 규칙 역방향 룩업 맵 생성 (레거시 49-57행)
  * 학생 이름 -> 관련 규칙 배열 (O(1) 조회)
+ *
+ * 학생 이름이 그대로 키가 되므로 `{}` 대신 프로토타입 없는 객체를 쓴다. 스키마는
+ * 'toString'·'constructor'·'__proto__' 같은 이름도 통과시키는데, 일반 객체라면
+ * `map[name]`이 상속된 함수를 찾아 `.push`에서 TypeError가 나거나
+ * `map['__proto__'] = []` 대입이 삼켜진다. 초기화 판정도 상속 속성에 속지 않도록
+ * `Object.hasOwn`으로 한다(`in`은 프로토타입 체인까지 보므로 불충분).
  */
 export function buildRuleLookup(rules: SeparationRule[]): RuleLookup {
-  const map: RuleLookup = {};
+  const map = Object.create(null) as RuleLookup;
   for (const rule of rules) {
-    if (!map[rule.studentA]) map[rule.studentA] = [];
-    if (!map[rule.studentB]) map[rule.studentB] = [];
+    if (!Object.hasOwn(map, rule.studentA)) map[rule.studentA] = [];
+    if (!Object.hasOwn(map, rule.studentB)) map[rule.studentB] = [];
     map[rule.studentA]!.push({ other: rule.studentB, minDistance: rule.minDistance });
     map[rule.studentB]!.push({ other: rule.studentA, minDistance: rule.minDistance });
   }
@@ -28,9 +34,10 @@ export function buildRuleLookup(rules: SeparationRule[]): RuleLookup {
 
 /**
  * 학생 이름 -> 좌석 인덱스 역방향 맵 생성 (레거시 62-68행)
+ * `buildRuleLookup`과 같은 이유로 프로토타입 없는 객체를 쓴다.
  */
 export function buildNameToSeatMap(assignment: Assignment): Record<string, number> {
-  const map: Record<string, number> = {};
+  const map = Object.create(null) as Record<string, number>;
   for (const [seat, name] of Object.entries(assignment)) {
     map[name] = Number(seat);
   }

@@ -6,8 +6,24 @@ import type { PosMap } from './lookup';
  * 학생 이름 -> 허용 좌석 집합.
  * `null`은 "모든 학생이 가용 좌석 전체를 쓸 수 있음"(제약 없음)을 뜻한다.
  * 레거시는 이 경우에도 학생마다 전체 좌석 배열을 채운 객체를 돌려줬다.
+ *
+ * 주의: 레거시가 같은 성별 학생에게 같은 배열 참조를 나눠 준 것과 마찬가지로,
+ * 여러 학생이 **같은 Set 인스턴스를 공유**한다(예: 모든 남학생이 한 Set).
+ * 소비자는 이 Set을 읽기 전용으로 다뤄야 한다. 한 학생 몫만 지우려고
+ * `delete`를 부르면 같은 성별 전원의 후보가 함께 사라진다. 좁힐 일이 있으면
+ * 새 Set/배열로 복사해서 쓸 것.
  */
 export type GenderSeatSets = Record<string, Set<number>> | null;
+
+/**
+ * 학생 이름으로 성별 읽기.
+ * 'toString' 같은 이름이 상속 속성(함수)을 집어오지 않도록 `Object.hasOwn`으로 막는다.
+ * 레거시는 `genders[s] === 'M'`/`=== 'F'` 비교뿐이라 상속 함수도 결국 "성별 모름"으로
+ * 떨어졌다. 여기서도 결과는 같고(모름 -> 전체 좌석), 읽기만 안전해진다.
+ */
+function genderOf(genders: Record<string, Gender>, name: string): Gender | undefined {
+  return Object.hasOwn(genders, name) ? genders[name] : undefined;
+}
 
 /** 레거시 곳곳에서 반복되던 남/녀 인원 집계 (동작 동일, 중복만 제거) */
 function countGenders(
@@ -17,8 +33,9 @@ function countGenders(
   let maleCount = 0,
     femaleCount = 0;
   students.forEach((s) => {
-    if (genders[s] === 'M') maleCount++;
-    else if (genders[s] === 'F') femaleCount++;
+    const g = genderOf(genders, s);
+    if (g === 'M') maleCount++;
+    else if (g === 'F') femaleCount++;
   });
   return { maleCount, femaleCount };
 }
@@ -68,7 +85,9 @@ export function precomputeGenderSeats(
   // v2는 ClassDataSchema가 두 필드를 항상 채워 주므로 그대로 읽는다.
   const genderRule = data.genderRule;
   const genders = data.studentGenders;
-  const result: Record<string, Set<number>> = {};
+  // 학생 이름이 키가 되므로 프로토타입 없는 객체 (lookup.ts와 같은 이유).
+  // 일반 객체였다면 '__proto__'라는 이름의 학생 배정이 프로토타입 대입으로 새어 나간다.
+  const result = Object.create(null) as Record<string, Set<number>>;
   // 레거시의 `const allSeats = [...availableSeats]`와 같은 방어 복사.
   // 호출부(백트래킹)가 availableSeats를 변형해도 사전 계산 결과는 고정된다.
   const allSeats = new Set(availableSeats);
@@ -117,7 +136,7 @@ export function precomputeGenderSeats(
     }
 
     students.forEach((s) => {
-      const g = genders[s];
+      const g = genderOf(genders, s);
       if (g === 'M') result[s] = maleSeats;
       else if (g === 'F') result[s] = femaleSeats;
       else result[s] = allSeats;
@@ -162,7 +181,7 @@ export function precomputeGenderSeats(
 
     let majorPairedCount = 0;
     students.forEach((s) => {
-      const g = genders[s];
+      const g = genderOf(genders, s);
       if (g === minorGender) {
         result[s] = minorSeats;
       } else if (g === majorGender) {
@@ -243,7 +262,7 @@ export function precomputeGenderSeats(
       }
 
       students.forEach((s) => {
-        const g = genders[s];
+        const g = genderOf(genders, s);
         if (g === 'M') result[s] = maleSeats;
         else if (g === 'F') result[s] = femaleSeats;
         else result[s] = allSeats;

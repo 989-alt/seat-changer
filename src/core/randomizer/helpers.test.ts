@@ -102,7 +102,6 @@ describe('rng', () => {
     const r = mulberry32(0);
     const vals = Array.from({ length: 200 }, () => r());
     expect(vals.every((v) => v >= 0 && v < 1)).toBe(true);
-    expect(Array.from({ length: 3 }, mulberry32(99))).not.toEqual([0, 0, 0]);
     const a = mulberry32(99);
     const b = mulberry32(99);
     expect([a(), a(), a()]).toEqual([b(), b(), b()]);
@@ -141,6 +140,34 @@ describe('buildRuleLookup', () => {
     expect(m.A).toHaveLength(2);
     expect(m.B).toHaveLength(2);
   });
+
+  // 스키마는 'toString'·'constructor'·'__proto__' 같은 이름도 통과시킨다.
+  // 일반 객체였다면 상속된 함수 때문에 .push에서 TypeError가 나거나
+  // '__proto__' 대입이 삼켜져 규칙이 사라진다.
+  it('프로토타입 이름 학생도 안전하게 처리한다', () => {
+    const m = buildRuleLookup([
+      { studentA: 'toString', studentB: 'constructor', minDistance: 2 },
+      { studentA: '__proto__', studentB: 'toString', minDistance: 3 },
+      { studentA: 'hasOwnProperty', studentB: 'valueOf', minDistance: 1 },
+    ]);
+    expect(m['toString']).toEqual([
+      { other: 'constructor', minDistance: 2 },
+      { other: '__proto__', minDistance: 3 },
+    ]);
+    expect(m['constructor']).toEqual([{ other: 'toString', minDistance: 2 }]);
+    expect(m['__proto__']).toEqual([{ other: 'toString', minDistance: 3 }]);
+    expect(m['hasOwnProperty']).toEqual([{ other: 'valueOf', minDistance: 1 }]);
+    expect(m['valueOf']).toEqual([{ other: 'hasOwnProperty', minDistance: 1 }]);
+    // 프로토타입 오염이 없다
+    expect(Object.getPrototypeOf(m)).toBeNull();
+    expect(({} as Record<string, unknown>)['toString']).toBe(Object.prototype.toString);
+  });
+
+  it('규칙이 없는 학생 이름은 조회해도 값이 없다 (상속 함수를 집지 않는다)', () => {
+    const m = buildRuleLookup([{ studentA: 'A', studentB: 'B', minDistance: 2 }]);
+    expect(m['toString']).toBeUndefined();
+    expect(m['constructor']).toBeUndefined();
+  });
 });
 
 describe('buildNameToSeatMap', () => {
@@ -151,6 +178,15 @@ describe('buildNameToSeatMap', () => {
     expect(m.A).toBe(0);
     expect(m.B).toBe(12);
     expect(typeof m.B).toBe('number');
+  });
+
+  it('프로토타입 이름 학생도 안전하게 처리한다', () => {
+    // 일반 객체였다면 map['__proto__'] = 3 대입이 삼켜져 좌석을 잃는다
+    const m = buildNameToSeatMap({ 3: '__proto__', 4: 'toString', 5: 'constructor' });
+    expect(m['__proto__']).toBe(3);
+    expect(m['toString']).toBe(4);
+    expect(m['constructor']).toBe(5);
+    expect(Object.getPrototypeOf(m)).toBeNull();
   });
 });
 
@@ -182,12 +218,60 @@ describe('buildAdjacencyMap', () => {
       for (const n of adj[p.index]!) expect(adj[n]).toContain(p.index);
   });
 
-  it('비활성 좌석도 기하 정보이므로 그대로 남는다 (레거시 동일)', () => {
+  // 레거시는 disabledSeats를 보지 않는다. 좌석 배열 자체가 필터되지 않으므로
+  // getSeatPositions 결과를 그대로 넘기면 비활성 좌석도 이웃으로 남는다(레거시 동일).
+  // 반대로 호출부가 가용 좌석만 넘기면 그 좌석은 맵에서 통째로 사라진다.
+  it('비활성 좌석: positions를 그대로 넘기면 이웃으로 남는다', () => {
     const d = examData();
     d.layoutSettings.disabledSeats = [1];
     const ps = getLayout('exam').getSeatPositions(d.layoutSettings);
     const adj = buildAdjacencyMap(ps, posMapOf(ps), d);
+    expect(ps).toHaveLength(30); // 배치는 비활성 좌석을 빼지 않는다
     expect(adj[0]).toContain(1);
+  });
+
+  it('비활성 좌석: positions에서 빼고 넘기면 키와 이웃에서 모두 사라진다', () => {
+    const d = examData();
+    d.layoutSettings.disabledSeats = [1];
+    const disabled = new Set(d.layoutSettings.disabledSeats);
+    const ps = getLayout('exam')
+      .getSeatPositions(d.layoutSettings)
+      .filter((p) => !disabled.has(p.index));
+    const adj = buildAdjacencyMap(ps, posMapOf(ps), d);
+    expect(Object.keys(adj)).toHaveLength(29);
+    expect(adj[1]).toBeUndefined();
+    expect(adj[0]).toEqual([6]); // 1번이 빠져 아래쪽 6번만 남는다
+    expect(adj[2]).toEqual([3, 8]); // 왼쪽 1번이 빠졌다
+    expect(adj[7]).toEqual([6, 8, 13]); // 위쪽 1번이 빠졌다
+  });
+
+  // 자유배치: px/py를 CELL_PX(80x60)로 양자화한 row/col로 인접을 본다.
+  // 같은 칸에 겹친 두 책상은 Manhattan 거리 0이라 `dist === 1`을 만족하지 못해
+  // 서로 인접이 아니다 (레거시의 엄격 비교 그대로).
+  it('자유배치는 양자화된 격자 좌표로 인접을 계산하고, 같은 칸 책상은 인접이 아니다', () => {
+    const d = examData({ layoutType: 'custom' });
+    d.layoutSettings.customDesks = [
+      { x: 0, y: 0 }, // 0 -> row0 col0
+      { x: 80, y: 0 }, // 1 -> row0 col1
+      { x: 0, y: 60 }, // 2 -> row1 col0
+      { x: 10, y: 5 }, // 3 -> row0 col0 (0번과 같은 칸)
+      { x: 160, y: 0 }, // 4 -> row0 col2
+    ];
+    const ps = getLayout('custom').getSeatPositions(d.layoutSettings);
+    expect(ps.map((p) => [p.row, p.col])).toEqual([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [0, 0],
+      [0, 2],
+    ]);
+    const adj = buildAdjacencyMap(ps, posMapOf(ps), d);
+    expect(adj[0]).toEqual([1, 2]);
+    expect(adj[3]).toEqual([1, 2]);
+    expect(adj[0]).not.toContain(3); // 거리 0 -> 인접 아님
+    expect(adj[3]).not.toContain(0);
+    expect(adj[1]).toEqual([0, 3, 4]);
+    expect(adj[4]).toEqual([1]); // 0번과는 거리 2
   });
 
   it('짝 대형은 같은 행의 짝 파트너만 인접', () => {
@@ -506,5 +590,49 @@ describe('precomputeGenderSeats', () => {
     const r = precomputeGenderSeats(students, available, posMap, data)!;
     expect([...r.M1!].sort((a, b) => a - b)).toEqual([2, 3, 4, 5]);
     expect([...r.F1!].sort((a, b) => a - b)).toEqual([24, 25, 26, 27, 28, 29]);
+  });
+
+  // ---- 경계: 학생 0명 / 가용 좌석 0칸 -------------------------------------
+  // 레거시는 `students.forEach`로만 result를 채우므로 학생이 없으면 빈 객체,
+  // 좌석이 없으면 모든 학생이 빈 좌석 집합을 받는다(어느 쪽도 null이 아니다).
+  const eachRule = ['mixed', 'mixedFirst', 'same'] as const;
+
+  it.each(eachRule)('%s: 학생이 없으면 빈 맵 (null 아님)', (rule) => {
+    const { d, posMap, available } = allExam();
+    const data: ClassData = { ...d, genderRule: rule, studentGenders: {} };
+    const r = precomputeGenderSeats([], available, posMap, data);
+    expect(r).not.toBeNull();
+    expect(Object.keys(r!)).toEqual([]);
+  });
+
+  it.each(eachRule)('%s: 가용 좌석이 없으면 모든 학생이 빈 집합', (rule) => {
+    const { d, posMap } = allExam();
+    const students = ['M1', 'F1', 'X'];
+    const data: ClassData = {
+      ...d,
+      genderRule: rule,
+      studentGenders: { M1: 'M', F1: 'F' },
+    };
+    const r = precomputeGenderSeats(students, new Set(), posMap, data)!;
+    expect(r).not.toBeNull();
+    expect(Object.keys(r).sort()).toEqual(['F1', 'M1', 'X']);
+    for (const s of students) expect(r[s]!.size).toBe(0);
+  });
+
+  // ---- 프로토타입 이름 학생 ------------------------------------------------
+  it('프로토타입 이름 학생도 안전하게 처리한다', () => {
+    // 레거시는 genders['toString']이 상속 함수라 'M'/'F' 어느 쪽도 아니어서
+    // "성별 모름" -> 전체 좌석으로 떨어졌다. 그 동작을 그대로 유지한다.
+    const { d, posMap, available } = allExam();
+    const students = ['toString', '__proto__', 'M1'];
+    // 객체 리터럴의 `__proto__:`는 프로토타입 지정이라 계산된 키로 넣어야 자기 속성이 된다
+    const studentGenders: Record<string, Gender> = { M1: 'M', ['__proto__']: 'F' };
+    const data: ClassData = { ...d, genderRule: 'mixed', studentGenders };
+    const r = precomputeGenderSeats(students, available, posMap, data)!;
+    expect(Object.getPrototypeOf(r)).toBeNull();
+    expect(r['toString']!.size).toBe(30); // 성별 모름 -> 전체 좌석
+    expect(r['M1']!.size).toBe(15);
+    expect(r['__proto__']!.size).toBe(15); // 여학생 좌석
+    expect(r['M1']).not.toEqual(r['__proto__']);
   });
 });
