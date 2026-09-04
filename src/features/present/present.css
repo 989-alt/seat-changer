@@ -1,0 +1,55 @@
+/*
+ * 발표 화면 전용 스타일. globals.css는 건드리지 않는다(계약서 0절).
+ * prefers-reduced-motion에서는 globals.css가 애니메이션을 전역으로 끄므로,
+ * 여기의 규칙은 모두 "정지 상태에서도 내용이 보이는" 형태여야 한다.
+ * (초기 opacity:0 금지 — 크기·기울기만 움직인다.)
+ */
+
+@keyframes present-countdown-pop {
+  from { transform: scale(0.55); }
+  60% { transform: scale(1.1); }
+  to { transform: scale(1); }
+}
+
+.present-countdown-number {
+  animation: present-countdown-pop 0.55s ease-out;
+}
+
+/* 셔플: SeatBoard가 flipping일 때 붙이는 클래스(계약서 3-2) */
+@keyframes present-shuffle-wobble {
+  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+  25% { transform: translateY(-6px) rotate(2deg); }
+  50% { transform: translateY(4px) rotate(-2deg); }
+  75% { transform: translateY(-3px) rotate(1.5deg); }
+}
+
+.seat-board-flipping [data-cork='note-seat'] {
+  animation: present-shuffle-wobble 0.45s ease-in-out infinite;
+}
+
+/* 한 명씩 뽑기에서 좌석을 훑을 때의 강조 */
+@keyframes present-spotlight-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.present-spotlight [data-cork='note-seat'] {
+  animation: present-spotlight-pulse 0.5s ease-in-out infinite;
+}
+
+/* 인쇄: 화면용은 숨기고 학생 시선·선생님 시선 양면 보기를 낸다(레거시와 같은 구성) */
+.present-print-only {
+  display: none;
+}
+
+@media print {
+  .present-screen-only {
+    display: none !important;
+  }
+  .present-print-only {
+    display: block !important;
+  }
+  @page {
+    margin: 12mm;
+  }
+}
