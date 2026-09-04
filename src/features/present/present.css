@@ -48,6 +48,36 @@
   }
   .present-print-only {
     display: block !important;
+    /* 칠판은 어두운 바탕에 밝은 글씨라 배경을 빼고 인쇄하면 글자가 사라진다.
+       배치도 영역만 색을 그대로 내보낸다. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /*
+   * 코르크 질감은 종이에서 잉크만 먹고 대비를 떨어뜨린다. 인쇄는 흰 바탕으로.
+   * body 배경은 인쇄면 전체(캔버스)로 번지므로 함께 지운다. globals.css는
+   * 건드리지 않고, 이 파일을 읽는 발표 화면의 인쇄에서만 덮어쓴다.
+   */
+  body {
+    background: #ffffff !important;
+  }
+  [data-page='present'] {
+    background: #ffffff !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+  /* 컨페티 캔버스는 화면 전체를 덮는 fixed 요소라 인쇄면을 가린다. */
+  .present-confetti {
+    display: none !important;
+  }
+  /* 배치도 한 장이 페이지 경계에서 잘리지 않게 하고, 시점마다 새 장에서 시작한다. */
+  .present-print-page {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .present-print-page + .present-print-page {
+    break-before: page;
+    page-break-before: always;
   }
   @page {
     margin: 12mm;

@@ -2,6 +2,7 @@
 // 뽑기 연출의 상태는 useDrawSequence가 들고 있고, 이 파일은 화면 구성과
 // 저장(스토어)·이미지/인쇄·시점 전환만 맡는다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { ArrowLeft, Eye, ImageDown, Play, Printer, RotateCcw, UserRound, Volume2, VolumeX } from 'lucide-react';
 import { ChalkBoard } from '@/components/cork/ChalkBoard';
 import { ToastHost } from '@/components/Toast';
@@ -163,7 +164,8 @@ function renderBoardToCanvas(root: HTMLElement, teacherView: boolean): HTMLCanva
       ctx.fillStyle = IMG.seatText;
       ctx.font = 'bold 13px "Noto Sans KR", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(name, x + rect.width / 2, y + rect.height / 2 + 5);
+      // 이름이 긴 학생이 있어도 이름표 밖으로 나가지 않게 폭을 제한한다.
+      ctx.fillText(name, x + rect.width / 2, y + rect.height / 2 + 5, Math.max(rect.width - 8, 20));
     }
   }
   return canvas;
@@ -337,24 +339,35 @@ export function PresentPage() {
     }, 'image/png');
   }, [pushToast, teacherView]);
 
-  // 인쇄: 학생 시선·선생님 시선 양면 보기를 만든 뒤 인쇄하고 정리한다
+  // 인쇄: 학생 시선·선생님 시선 양면 보기를 만든 뒤 인쇄한다
   // (legacy/js/screens/student-screen.js:788-835와 같은 구성).
+  //
+  // 양면 보기는 인쇄가 시작되는 순간에만 DOM에 올린다. 화면에는 배치도가 하나뿐이어야
+  // 좌석 클릭·이미지 저장·E2E 선택자가 흔들리지 않기 때문이다. 브라우저는 beforeprint를
+  // 처리한 뒤에 인쇄용 레이아웃을 잡으므로, 그 안에서 flushSync로 DOM을 동기 반영하면
+  // 인쇄 버튼뿐 아니라 사용자가 직접 Ctrl+P를 눌러도 같은 결과가 나온다.
   useEffect(() => {
-    if (!printing) return;
-    const done = () => setPrinting(false);
-    window.addEventListener('afterprint', done, { once: true });
-    // afterprint를 지원하지 않는 환경 폴백
-    const timer = window.setTimeout(done, 5000);
+    if (typeof window === 'undefined') return;
+    const before = () => flushSync(() => setPrinting(true));
+    const after = () => setPrinting(false);
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    return () => {
+      window.removeEventListener('beforeprint', before);
+      window.removeEventListener('afterprint', after);
+    };
+  }, []);
+
+  const handlePrint = useCallback(() => {
+    // beforeprint를 지원하지 않는 브라우저를 위해 버튼 경로에서도 직접 올려 둔다.
+    flushSync(() => setPrinting(true));
     try {
       window.print();
     } catch {
-      done();
+      // 인쇄를 막는 환경(테스트 등)에서는 조용히 넘어간다.
     }
-    return () => {
-      window.removeEventListener('afterprint', done);
-      window.clearTimeout(timer);
-    };
-  }, [printing]);
+    setPrinting(false);
+  }, []);
 
   const highlightSeats = useMemo(() => {
     const out: number[] = [];
@@ -519,7 +532,7 @@ export function PresentPage() {
 
             <WoodButton
               variant="secondary"
-              onClick={() => setPrinting(true)}
+              onClick={handlePrint}
               disabled={!hasResult || seq.running}
               icon={<Printer size={18} aria-hidden="true" className="pointer-events-none" />}
             >
@@ -554,10 +567,15 @@ export function PresentPage() {
 
       {printing && hasResult && (
         <div className="present-print-only">
-          <p className="font-body text-[18px] font-bold text-ink">[ 학생 시선 ]</p>
-          <SeatBoard {...boardProps} perspective="student" />
-          <p className="mt-6 font-body text-[18px] font-bold text-ink">[ 선생님 시선 ]</p>
-          <SeatBoard {...boardProps} perspective="teacher" />
+          {/* 한 배치도가 페이지 경계에서 잘리지 않도록 시점별로 한 장씩 나눈다. */}
+          <section className="present-print-page">
+            <p className="font-body text-[18px] font-bold text-ink">[ 학생 시선 ]</p>
+            <SeatBoard {...boardProps} perspective="student" />
+          </section>
+          <section className="present-print-page">
+            <p className="font-body text-[18px] font-bold text-ink">[ 선생님 시선 ]</p>
+            <SeatBoard {...boardProps} perspective="teacher" />
+          </section>
         </div>
       )}
 

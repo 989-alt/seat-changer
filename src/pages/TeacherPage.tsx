@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Circle, Eye, Trash2, X } from 'lucide-react';
 import { WoodButton } from '@/components/cork/WoodButton';
 import { ToastHost } from '@/components/Toast';
@@ -50,6 +50,50 @@ function violationSeatsOf(result: CheckResult | null): number[] {
   return seats;
 }
 
+// 배치도 미리보기 확대 배율의 한계. 1배를 넘겨 카드의 남는 공간을 채우되,
+// 이름표가 흐려지는 지점을 넘지 않도록 위쪽은 1.6배로 묶는다.
+const MAX_BOARD_SCALE = 1.6;
+const MIN_BOARD_SCALE = 0.5;
+
+/**
+ * 배치도 미리보기를 카드가 남기는 세로 공간에 맞춰 확대·축소한다.
+ * PresentPage와 같은 방식(계약서상 T6 담당 파일이라 여기서 그대로 다시 구현):
+ * 컨테이너는 relative·overflow-hidden으로 두고 배치도는 absolute + transform: scale로
+ * 띄운 뒤, ResizeObserver로 컨테이너 여유 공간과 배치도의 transform 이전 크기
+ * (offsetWidth/offsetHeight, 확대해도 값이 변하지 않는다)를 재서 배율을 정한다.
+ */
+function useBoardScale() {
+  const areaRef = useRef<HTMLDivElement | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const area = areaRef.current;
+    const board = boardRef.current;
+    if (!area || !board) return;
+    const compute = () => {
+      const availW = area.clientWidth;
+      const availH = area.clientHeight;
+      const naturalW = board.offsetWidth;
+      const naturalH = board.offsetHeight;
+      if (!availW || !availH || !naturalW || !naturalH) return;
+      const next = Math.min(availW / naturalW, availH / naturalH);
+      setScale(Math.min(MAX_BOARD_SCALE, Math.max(MIN_BOARD_SCALE, next)));
+    };
+    compute();
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(compute);
+    ro?.observe(area);
+    ro?.observe(board);
+    window.addEventListener('resize', compute);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', compute);
+    };
+  }, []);
+
+  return { areaRef, boardRef, scale };
+}
+
 export function TeacherPage() {
   const data = useAppStore((s) => s.data);
   const update = useAppStore((s) => s.update);
@@ -59,6 +103,7 @@ export function TeacherPage() {
 
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
+  const { areaRef, boardRef, scale } = useBoardScale();
 
   const done = stepDone(data);
   const previewMapping = useMemo(() => buildPreview(data), [data]);
@@ -132,10 +177,10 @@ export function TeacherPage() {
             <HistoryCard />
           </div>
 
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-5 lg:h-[calc(100vh-13rem)]">
             <section
               aria-label="배치도 미리보기"
-              className="rounded-note border-2 border-cork-dark bg-paper p-4 shadow-card"
+              className="flex min-h-[420px] flex-col rounded-note border-2 border-cork-dark bg-paper p-4 shadow-card lg:min-h-0 lg:flex-1"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-hand text-[21px] font-bold text-ink">배치도 미리보기</h2>
@@ -177,21 +222,39 @@ export function TeacherPage() {
                 </div>
               )}
 
-              <div className="mt-3">
-                <SeatBoard
-                  data={data}
-                  mapping={previewMapping}
-                  size="sm"
-                  perspective={data.viewPerspective}
-                  editable
-                  onSeatClick={(seatIndex) => setSelectedSeat((prev) => (prev === seatIndex ? null : seatIndex))}
-                  onSeatRestore={restoreSeat}
-                  highlightSeats={violationSeats}
-                />
+              {/*
+                배치도를 카드가 남기는 세로 공간에 맞춰 키운다. transform: scale은
+                그리기만 바꾸고 레이아웃 크기는 그대로 두므로, 절대 위치로 띄워
+                일반 흐름 밖에서 확대해야 카드가 그만큼 더 커지지 않는다.
+              */}
+              <div
+                ref={areaRef}
+                data-testid="board-scale-area"
+                className="relative mt-3 min-h-[320px] flex-1 overflow-hidden lg:min-h-0"
+              >
+                <div
+                  ref={boardRef}
+                  data-testid="board-scale-wrap"
+                  style={{ transform: `translate(-50%, -50%) scale(${scale})` }}
+                  className="absolute left-1/2 top-1/2 origin-center"
+                >
+                  <SeatBoard
+                    data={data}
+                    mapping={previewMapping}
+                    size="sm"
+                    perspective={data.viewPerspective}
+                    editable
+                    onSeatClick={(seatIndex) => setSelectedSeat((prev) => (prev === seatIndex ? null : seatIndex))}
+                    onSeatRestore={restoreSeat}
+                    highlightSeats={violationSeats}
+                  />
+                </div>
               </div>
             </section>
 
-            <CheckPanel onResult={setCheckResult} />
+            <div className="shrink-0">
+              <CheckPanel onResult={setCheckResult} />
+            </div>
           </div>
         </div>
       </div>

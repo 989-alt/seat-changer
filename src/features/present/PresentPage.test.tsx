@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createDefaultData } from '@/core/model/defaults';
 import type { ClassData } from '@/core/model/types';
 import { useAppStore } from '@/store/useAppStore';
 import { PresentPage } from '@/pages/PresentPage';
+import { Confetti } from '@/features/present/Confetti';
 
 function makeData(patch: Partial<ClassData> = {}): ClassData {
   const base = createDefaultData();
@@ -99,5 +100,49 @@ describe('PresentPage', () => {
 
     expect(useAppStore.getState().data.viewPerspective).toBe('teacher');
     expect(screen.getByRole('button', { name: /선생님 시선/ })).toBeInTheDocument();
+  });
+
+  // 실브라우저 검증에서 찾은 결함: 인쇄용 양면 보기가 인쇄 버튼을 누른 동안에만
+  // 존재해, 사용자가 Ctrl+P로 직접 인쇄하면 빈 종이가 나왔다. 이제는 브라우저가
+  // 인쇄를 시작할 때 알리는 beforeprint에서 올린다.
+  it('브라우저가 인쇄를 시작하면 학생 시선과 선생님 시선 배치도를 함께 올린다', async () => {
+    const user = userEvent.setup();
+    render(<PresentPage />);
+    await user.click(screen.getByRole('button', { name: /자리 뽑기/ }));
+    await screen.findByText('가람');
+
+    // 평소 화면에는 배치도가 하나뿐이다.
+    expect(screen.getAllByTestId('seat-board')).toHaveLength(1);
+
+    act(() => {
+      window.dispatchEvent(new Event('beforeprint'));
+    });
+
+    const boards = screen.getAllByTestId('seat-board');
+    expect(boards).toHaveLength(3);
+    expect(boards.map((b) => b.getAttribute('data-perspective'))).toEqual([
+      'student',
+      'student',
+      'teacher',
+    ]);
+
+    act(() => {
+      window.dispatchEvent(new Event('afterprint'));
+    });
+    expect(screen.getAllByTestId('seat-board')).toHaveLength(1);
+  });
+});
+
+describe('Confetti', () => {
+  it('active가 아니면 아무것도 그리지 않는다', () => {
+    render(<Confetti active={false} />);
+    expect(screen.queryByTestId('confetti')).toBeNull();
+  });
+
+  // 실브라우저 검증에서 찾은 결함: 연출이 끝나도 캔버스가 화면 전체를 덮은 채
+  // 남아 인쇄·캡처에 끼어들었다. 2d 컨텍스트가 없는 환경에서도 스스로 내려가야 한다.
+  it('그릴 수 없는 환경에서는 캔버스를 남기지 않는다', () => {
+    render(<Confetti active />);
+    expect(screen.queryByTestId('confetti')).toBeNull();
   });
 });

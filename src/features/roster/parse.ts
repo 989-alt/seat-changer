@@ -9,6 +9,9 @@ const MAX_NAME_LEN = 50;
 const KOREAN_NAME_RE = /^[가-힣]+$/;
 const COMMON_WORDS = new Set([
   '프로젝트', '학습', '목표', '내용', '활동', '수업', '학생', '선생님', '지도', '강사', '기간', '주제', '수업기간', '지도강사',
+  // 실제 HWP/HWPX 명렬표는 표 형태가 많고, 표 첫 행은 대개 "번호/이름" 같은 열 제목이다.
+  // 이 열 제목도 한글 2~5자라서 이름처럼 보이므로 결과에 섞이지 않게 걸러낸다.
+  '번호', '이름', '성명', '학번', '순번', '연번', '성별', '학년',
 ]);
 const HEADER_KEYWORDS = ['이름', '성명', '학생', 'name', '번호', '학번', '반'];
 const XML_NAME_TAGS = ['name', 'Name', '이름', '성명', 'student', 'Student', '학생'];
@@ -110,10 +113,19 @@ interface OleDocument {
   getStream(name: string): Uint8Array | null;
 }
 
+// OLE(복합 파일 바이너리) 포맷은 4096바이트보다 작은 스트림을 "미니 스트림"이라는
+// 별도 공간에 저장하고, 별도의 미니 FAT로 체인을 관리한다(MS-CFB 2.4.3). HWP의 PrvText는
+// 미리보기 텍스트라 거의 항상 4096바이트보다 작으므로, 미니 스트림을 지원하지 않으면
+// 엉뚱한 일반 섹터를 읽어 깨진 텍스트를 반환한다. 실제 .hwp 파일로 검증하며 발견한 버그.
+const MINI_STREAM_CUTOFF_FALLBACK = 4096;
+
 function parseOLE(data: Uint8Array): OleDocument {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const sectorSize = 1 << view.getUint16(30, true);
+  const miniSectorSize = 1 << view.getUint16(32, true);
   const dirStart = view.getInt32(48, true);
+  const miniStreamCutoff = view.getUint32(56, true) || MINI_STREAM_CUTOFF_FALLBACK;
+  const miniFatStart = view.getInt32(60, true);
 
   const fatSectorList: number[] = [];
   for (let i = 0; i < 109; i++) {
@@ -177,10 +189,68 @@ function parseOLE(data: Uint8Array): OleDocument {
     }
   }
 
+  // 미니 스트림(루트 엔트리의 데이터 영역)과 미니 FAT을 지연 계산한다.
+  // 미니 스트림을 쓰는 문서가 없으면(작은 스트림이 전혀 없으면) 계산하지 않는다.
+  let rootStreamBytes: Uint8Array | null = null;
+  let miniFat: number[] | null = null;
+
+  function getRootStreamBytes(): Uint8Array {
+    if (rootStreamBytes) return rootStreamBytes;
+    const root = entries.find((e) => e.name === 'Root Entry');
+    rootStreamBytes = root && root.startSector >= 0 ? readStream(root.startSector, root.size) : new Uint8Array(0);
+    return rootStreamBytes;
+  }
+
+  function getMiniFat(): number[] {
+    if (miniFat) return miniFat;
+    const table: number[] = [];
+    if (miniFatStart >= 0) {
+      for (const sector of getSectorChain(miniFatStart)) {
+        const offset = (sector + 1) * sectorSize;
+        for (let i = 0; i < sectorSize / 4; i++) {
+          table.push(view.getInt32(offset + i * 4, true));
+        }
+      }
+    }
+    miniFat = table;
+    return table;
+  }
+
+  function getMiniSectorChain(start: number): number[] {
+    const table = getMiniFat();
+    const chain: number[] = [];
+    let current = start;
+    const visited = new Set<number>();
+    while (current >= 0 && !visited.has(current)) {
+      visited.add(current);
+      chain.push(current);
+      const next = table[current];
+      current = next !== undefined ? next : -1;
+    }
+    return chain;
+  }
+
+  function readMiniStream(start: number, size: number): Uint8Array {
+    const root = getRootStreamBytes();
+    const chain = getMiniSectorChain(start);
+    const result = new Uint8Array(size);
+    let pos = 0;
+    for (const miniSector of chain) {
+      const offset = miniSector * miniSectorSize;
+      const remaining = size - pos;
+      const toCopy = Math.min(remaining, miniSectorSize);
+      result.set(root.slice(offset, offset + toCopy), pos);
+      pos += toCopy;
+      if (pos >= size) break;
+    }
+    return result;
+  }
+
   return {
     getStream(name: string): Uint8Array | null {
       const entry = entries.find((e) => e.name === name);
       if (!entry || entry.startSector < 0) return null;
+      if (entry.size < miniStreamCutoff) return readMiniStream(entry.startSector, entry.size);
       return readStream(entry.startSector, entry.size);
     },
   };
@@ -334,8 +404,9 @@ export async function parseHwpxRoster(buffer: ArrayBuffer): Promise<string[]> {
     const textMatches = xml.match(/<hp:t[^>]*>([^<]+)<\/hp:t>/g) ?? [];
     for (const match of textMatches) {
       const text = match.replace(/<[^>]+>/g, '').trim();
-      // 이름처럼 보이는 텍스트 (2~10글자 한글)
-      if (text.length >= 2 && text.length <= 10 && KOREAN_NAME_RE.test(text)) {
+      // 이름처럼 보이는 텍스트 (2~10글자 한글). 표 형태 명렬표는 첫 행이
+      // "번호"/"이름" 같은 열 제목이라 COMMON_WORDS로 걸러낸다.
+      if (text.length >= 2 && text.length <= 10 && KOREAN_NAME_RE.test(text) && !COMMON_WORDS.has(text)) {
         names.push(text);
       }
     }

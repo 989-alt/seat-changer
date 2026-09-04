@@ -107,36 +107,126 @@ function utf16leBytes(text: string): Uint8Array {
   return out;
 }
 
-/** legacy parseOLE가 읽을 수 있는 최소 OLE 복합 문서(PrvText 스트림 하나)를 만든다. */
+// 실제 .hwp 파일(한컴오피스가 만든 것) 여러 개를 열어 구조를 확인한 결과, PrvText(미리보기
+// 텍스트) 스트림은 거의 항상 4096바이트보다 작았다. OLE(복합 파일 바이너리, MS-CFB) 포맷은
+// 4096바이트 미만 스트림을 "미니 스트림"(루트 엔트리 안의 별도 저장 공간)에 별도의 미니 FAT
+// 체인으로 저장한다. 이 사실을 반영하지 않은 옛 픽스처는 일반 섹터 체인만 흉내 냈는데, 그건
+// 실제 .hwp에서는 절대 벌어지지 않는 모양이라 버그(미니 스트림 미지원)를 가려버렸다.
+// 아래 두 빌더는 그 실제 구조를 재현한다.
+const SECTOR_SIZE = 512;
+const MINI_SECTOR_SIZE = 64;
+
+function writeDirEntry(
+  view: DataView,
+  bytes: Uint8Array,
+  offset: number,
+  name: string,
+  objectType: number,
+  startSector: number,
+  size: number,
+): void {
+  const nameUtf16 = `${name}\0`;
+  for (let i = 0; i < nameUtf16.length; i++) {
+    view.setUint16(offset + i * 2, nameUtf16.charCodeAt(i), true);
+  }
+  view.setUint16(offset + 64, nameUtf16.length * 2, true);
+  bytes[offset + 66] = objectType;
+  view.setInt32(offset + 116, startSector, true);
+  view.setUint32(offset + 120, size, true);
+}
+
+/**
+ * 실제 .hwp의 PrvText처럼 4096바이트 미만인 스트림(미니 스트림 경로)을 재현한다.
+ * 루트 엔트리 = 일반 섹터 체인에 저장된 미니 스트림 데이터, PrvText = 그 미니 스트림
+ * 안에서 미니 FAT 체인으로 주소되는 스트림.
+ */
 function buildFakeHwp(prvText: string): ArrayBuffer {
-  const buf = new ArrayBuffer(2048);
+  const dataBytes = utf16leBytes(prvText);
+  const miniSectorCount = Math.max(1, Math.ceil(dataBytes.length / MINI_SECTOR_SIZE));
+  const rootStreamSize = miniSectorCount * MINI_SECTOR_SIZE;
+  const rootDataSectorCount = Math.max(1, Math.ceil(rootStreamSize / SECTOR_SIZE));
+
+  const FAT_SECTOR = 0;
+  const DIR_SECTOR = 1;
+  const MINIFAT_SECTOR = 2;
+  const ROOT_DATA_START = 3;
+  const totalSectors = ROOT_DATA_START + rootDataSectorCount;
+
+  const buf = new ArrayBuffer(SECTOR_SIZE * (1 + totalSectors));
   const view = new DataView(buf);
   const bytes = new Uint8Array(buf);
 
   bytes.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1], 0);
   view.setUint16(30, 9, true); // 섹터 크기 2^9 = 512
-  view.setInt32(48, 1, true); // 디렉터리 시작 섹터 = 1
-  view.setInt32(76, 0, true); // DIFAT[0]: 섹터 0 = FAT
+  view.setUint16(32, 6, true); // 미니 섹터 크기 2^6 = 64
+  view.setInt32(48, DIR_SECTOR, true); // 디렉터리 시작 섹터
+  view.setUint32(56, 4096, true); // 미니 스트림 컷오프
+  view.setInt32(60, MINIFAT_SECTOR, true); // 미니 FAT 시작 섹터
+  view.setInt32(76, FAT_SECTOR, true); // DIFAT[0] = FAT 섹터
   for (let i = 1; i < 109; i++) view.setInt32(76 + i * 4, -1, true);
 
-  const fatOffset = 512;
-  view.setInt32(fatOffset + 0 * 4, -3, true);
-  view.setInt32(fatOffset + 1 * 4, -2, true); // 디렉터리 섹터: 체인 끝
-  view.setInt32(fatOffset + 2 * 4, -2, true); // 데이터 섹터: 체인 끝
-  for (let i = 3; i < 128; i++) view.setInt32(fatOffset + i * 4, -1, true);
-
-  const dirOffset = 1024;
-  const nameUtf16 = 'PrvText\0';
-  for (let i = 0; i < nameUtf16.length; i++) {
-    view.setUint16(dirOffset + i * 2, nameUtf16.charCodeAt(i), true);
+  const fatOffset = (FAT_SECTOR + 1) * SECTOR_SIZE;
+  view.setInt32(fatOffset + FAT_SECTOR * 4, -3, true); // FATSECT
+  view.setInt32(fatOffset + DIR_SECTOR * 4, -2, true);
+  view.setInt32(fatOffset + MINIFAT_SECTOR * 4, -2, true);
+  for (let i = 0; i < rootDataSectorCount; i++) {
+    const sector = ROOT_DATA_START + i;
+    view.setInt32(fatOffset + sector * 4, i === rootDataSectorCount - 1 ? -2 : sector + 1, true);
   }
-  view.setUint16(dirOffset + 64, nameUtf16.length * 2, true);
-  bytes[dirOffset + 66] = 2;
-  view.setInt32(dirOffset + 116, 2, true);
-  const dataBytes = utf16leBytes(prvText);
-  view.setUint32(dirOffset + 120, dataBytes.length, true);
+  for (let i = totalSectors; i < SECTOR_SIZE / 4; i++) view.setInt32(fatOffset + i * 4, -1, true);
 
-  bytes.set(dataBytes, 1536);
+  const dirOffset = (DIR_SECTOR + 1) * SECTOR_SIZE;
+  writeDirEntry(view, bytes, dirOffset, 'Root Entry', 5, ROOT_DATA_START, rootStreamSize);
+  writeDirEntry(view, bytes, dirOffset + 128, 'PrvText', 2, 0, dataBytes.length);
+
+  const miniFatOffset = (MINIFAT_SECTOR + 1) * SECTOR_SIZE;
+  for (let i = 0; i < miniSectorCount; i++) {
+    view.setInt32(miniFatOffset + i * 4, i === miniSectorCount - 1 ? -2 : i + 1, true);
+  }
+
+  const rootDataOffset = (ROOT_DATA_START + 1) * SECTOR_SIZE;
+  bytes.set(dataBytes, rootDataOffset);
+
+  return buf;
+}
+
+/**
+ * PrvText가 4096바이트 이상이면(긴 미리보기) 미니 스트림이 아니라 일반 FAT 섹터 체인으로
+ * 저장된다(MS-CFB 컷오프 규칙). 이 경로도 함께 검증한다.
+ */
+function buildFakeHwpBigPrvText(prvText: string): ArrayBuffer {
+  const dataBytes = utf16leBytes(prvText);
+  const sectorCount = Math.ceil(dataBytes.length / SECTOR_SIZE);
+  const FAT_SECTOR = 0;
+  const DIR_SECTOR = 1;
+  const DATA_START = 2;
+  const totalSectors = DATA_START + sectorCount;
+
+  const buf = new ArrayBuffer(SECTOR_SIZE * (1 + totalSectors));
+  const view = new DataView(buf);
+  const bytes = new Uint8Array(buf);
+
+  bytes.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1], 0);
+  view.setUint16(30, 9, true);
+  view.setInt32(48, DIR_SECTOR, true);
+  view.setInt32(76, FAT_SECTOR, true);
+  for (let i = 1; i < 109; i++) view.setInt32(76 + i * 4, -1, true);
+
+  const fatOffset = (FAT_SECTOR + 1) * SECTOR_SIZE;
+  view.setInt32(fatOffset + FAT_SECTOR * 4, -3, true);
+  view.setInt32(fatOffset + DIR_SECTOR * 4, -2, true);
+  for (let i = 0; i < sectorCount; i++) {
+    const sector = DATA_START + i;
+    view.setInt32(fatOffset + sector * 4, i === sectorCount - 1 ? -2 : sector + 1, true);
+  }
+  for (let i = totalSectors; i < SECTOR_SIZE / 4; i++) view.setInt32(fatOffset + i * 4, -1, true);
+
+  const dirOffset = (DIR_SECTOR + 1) * SECTOR_SIZE;
+  writeDirEntry(view, bytes, dirOffset, 'PrvText', 2, DATA_START, dataBytes.length);
+
+  const dataOffset = (DATA_START + 1) * SECTOR_SIZE;
+  bytes.set(dataBytes, dataOffset);
+
   return buf;
 }
 
@@ -211,6 +301,14 @@ describe('parseHwpRoster', () => {
     const buf = buildFakeHwp('프로젝트 학습 목표');
     expect(() => parseHwpRoster(buf)).toThrow('HWP에서 이름을 추출할 수 없습니다. CSV 형식을 사용해보세요.');
   });
+
+  it('PrvText가 4096바이트 이상이면 일반 섹터 체인에서 읽는다', () => {
+    // 실제 .hwp의 PrvText는 거의 항상 4096바이트 미만(미니 스트림)이지만, 컷오프 이상인
+    // 경우를 대비한 일반 섹터 체인 경로도 깨지지 않아야 한다.
+    const filler = '프로젝트 '.repeat(410); // 2050자 = 4100바이트, 컷오프(4096) 이상
+    const buf = buildFakeHwpBigPrvText(`${filler}김철수`);
+    expect(parseHwpRoster(buf)).toEqual(['김철수']);
+  });
 });
 
 describe('parseHwpxRoster', () => {
@@ -224,6 +322,18 @@ describe('parseHwpxRoster', () => {
     const xml = '<hp:t>김철수</hp:t><hp:t>이영희</hp:t><hp:t>박민준</hp:t>';
     const buf = buildZip([{ name: 'Contents/section0.xml', method: 8, data: new TextEncoder().encode(xml) }]);
     await expect(parseHwpxRoster(buf)).resolves.toEqual(['김철수', '이영희', '박민준']);
+  });
+
+  it('표 형태 명렬표의 열 제목("번호"/"이름")은 이름으로 오인하지 않는다', async () => {
+    // 실제 한컴오피스 hwpx는 hp:tbl > hp:tr > hp:tc > hp:subList > hp:p > hp:run > hp:t로
+    // 중첩되지만, 텍스트 추출 정규식은 중첩 구조와 무관하게 hp:t만 본다(실제 hwpx로 확인).
+    // 표 첫 행의 "번호"/"이름" 같은 열 제목도 한글 2~5자라 이름처럼 보이므로 걸러야 한다.
+    const xml =
+      '<hp:tbl><hp:tr><hp:tc><hp:t>번호</hp:t></hp:tc><hp:tc><hp:t>이름</hp:t></hp:tc></hp:tr>' +
+      '<hp:tr><hp:tc><hp:t>1</hp:t></hp:tc><hp:tc><hp:t>김철수</hp:t></hp:tc></hp:tr>' +
+      '<hp:tr><hp:tc><hp:t>2</hp:t></hp:tc><hp:tc><hp:t>이영희</hp:t></hp:tc></hp:tr></hp:tbl>';
+    const buf = buildZip([{ name: 'Contents/section0.xml', method: 0, data: new TextEncoder().encode(xml) }]);
+    await expect(parseHwpxRoster(buf)).resolves.toEqual(['김철수', '이영희']);
   });
 
   it('hp:t 태그가 없으면 폴백으로 한글 패턴을 추출한다', async () => {

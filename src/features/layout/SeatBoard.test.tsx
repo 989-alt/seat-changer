@@ -91,9 +91,9 @@ describe('SeatBoard 모둠 블록 위치(groupPositions)', () => {
         ])}
       />,
     );
-    // 좌석 원본 px: 0, 68, 400, 468. 가장 좁은 간격(68)이 이름표 한 칸(sm 84px)이
+    // 좌석 원본 px: 0, 68, 400, 468. 원본 좌석 한 칸(64px)이 이름표 한 칸(sm 84px)이
     // 되도록 축척하고, 좌석 중심으로 놓으므로 왼쪽 여백은 84/2 = 42px다.
-    const k = 84 / 68;
+    const k = 84 / 64; // 이름표 폭 / 모둠 좌석 폭(core/layouts/group.ts seatW)
     const at = (px: number) => px * k + 42;
     expect(leftOf(container, 0)).toBeCloseTo(at(0), 3);
     expect(leftOf(container, 1)).toBeCloseTo(at(68), 3);
@@ -132,7 +132,7 @@ describe('SeatBoard 모둠 블록 위치(groupPositions)', () => {
     const student = render(<SeatBoard data={data} />).container;
     const teacher = render(<SeatBoard data={data} perspective="teacher" />).container;
     // 캔버스 폭 = (원본 span) * 축척 + 이름표 한 칸. 두 시선의 좌표 합이 그 폭이다.
-    const width = 468 * (84 / 68) + 84;
+    const width = 468 * (84 / 64) + 84;
     expect(leftOf(student, 0) + leftOf(teacher, 0)).toBeCloseTo(width, 3);
   });
 });

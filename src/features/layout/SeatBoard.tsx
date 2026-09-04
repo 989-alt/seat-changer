@@ -49,6 +49,8 @@ const GROUP_TEXT: Record<Size, string> = { sm: 'text-[14px]', lg: 'text-[24px]' 
 const GROUP_LABEL_OFFSET: Record<Size, number> = { sm: 46, lg: 74 };
 // 이름표 아래 역할 글씨가 차지하는 높이(캔버스 여유용).
 const ROLE_PAD: Record<Size, number> = { sm: 24, lg: 36 };
+// 모둠 팻말과 이름표 윗변 사이 간격.
+const LABEL_GAP = 14;
 
 interface SeatSlotProps {
   index: number;
@@ -125,25 +127,33 @@ const SLOT_PX: Record<Size, { w: number; h: number }> = {
   lg: { w: 140, h: 96 },
 };
 
-/** 서로 다른 값들 사이의 가장 좁은 간격. 값이 하나뿐이면 0. */
-function minGap(values: number[]): number {
-  const u = uniqueSorted(values);
-  let gap = Infinity;
-  for (let i = 1; i < u.length; i++) gap = Math.min(gap, u[i]! - u[i - 1]!);
-  return Number.isFinite(gap) ? gap : 0;
-}
+/**
+ * 원본 px/py 좌표계에서 책상 한 개가 차지하는 크기.
+ * custom: `core/layouts/custom.ts`의 DESK_W/DESK_H (60x40)
+ * group : `core/layouts/group.ts`의 seatW/seatH (64x48)
+ * 편집기(CustomDeskEditor·GroupPositionEditor)도 같은 값을 쓰므로,
+ * 편집기에서 본 배치와 배치도의 비례가 어긋나지 않는다.
+ */
+const SOURCE_CELL: Record<'custom' | 'group', { w: number; h: number }> = {
+  custom: { w: 60, h: 40 },
+  group: { w: 64, h: 48 },
+};
 
 /**
  * px/py 픽셀 좌표를 캔버스 안 픽셀 좌표로 옮긴다(custom과 group 공용).
  *
  * 백분율로 정규화하면 캔버스가 좁을 때 이웃한 좌석의 간격이 이름표 폭보다
- * 작아져 이름표가 서로 겹친다(모둠 배치에서 실제로 겹쳤다). 그래서 원본 좌표의
- * "가장 좁은 좌석 간격"이 이름표 한 칸 크기가 되도록 축척하고, 캔버스 크기도
- * 그 결과에 맞춘다. 화면에 맞추는 일은 바깥(발표 화면의 확대·축소)이 맡는다.
+ * 작아져 이름표가 서로 겹친다(모둠 배치에서 실제로 겹쳤다). 그래서 원본 좌표계의
+ * 책상 한 개(SOURCE_CELL)가 이름표 한 칸이 되도록 일정하게 축척하고, 캔버스 크기도
+ * 그 결과에 맞춘다. 화면에 맞추는 일은 바깥(발표 화면·미리보기의 확대·축소)이 맡는다.
+ *
+ * 좌석 간 최소 간격을 기준으로 삼지 않는 이유: 책상 두 개가 유난히 가까우면
+ * 그 한 쌍 때문에 배치도 전체가 몇 배로 부풀어 다른 자리가 다 작아진다.
  */
 function pixelScale(
   positions: SeatPosition[],
   size: Size,
+  cell: { w: number; h: number },
   pad: { top: number; bottom: number } = { top: 0, bottom: 0 },
 ): {
   toLeft: (px: number) => number;
@@ -151,15 +161,11 @@ function pixelScale(
   width: number;
   height: number;
 } {
-  const xs = positions.map((p) => p.px ?? 0);
-  const ys = positions.map((p) => p.py ?? 0);
-  const x = extent(xs);
-  const y = extent(ys);
+  const x = extent(positions.map((p) => p.px ?? 0));
+  const y = extent(positions.map((p) => p.py ?? 0));
   const slot = SLOT_PX[size];
-  const gapX = minGap(xs);
-  const gapY = minGap(ys);
-  const kx = gapX > 0 ? slot.w / gapX : 1;
-  const ky = gapY > 0 ? slot.h / gapY : 1;
+  const kx = slot.w / cell.w;
+  const ky = slot.h / cell.h;
   return {
     toLeft: (px: number) => (px - x.min) * kx + slot.w / 2,
     toTop: (py: number) => (py - y.min) * ky + slot.h / 2 + pad.top,
@@ -291,7 +297,7 @@ export function SeatBoard({
   } else if (data.layoutType === 'custom') {
     // 이름표 아래 역할 글씨가 캔버스 밖으로 잘리지 않도록 위아래로 같은 여유를 준다
     // (교사 시선은 좌표를 180도 뒤집으므로 여유가 위아래 같아야 어긋나지 않는다).
-    const scale = pixelScale(positions, size, { top: ROLE_PAD[size], bottom: ROLE_PAD[size] });
+    const scale = pixelScale(positions, size, SOURCE_CELL.custom, { top: ROLE_PAD[size], bottom: ROLE_PAD[size] });
     body = (
       <div
         data-arrangement="custom"
@@ -308,7 +314,7 @@ export function SeatBoard({
     // 교사가 드래그해 저장한 위치(groupPositions)가 배치도에서 사라진다.
     // 모둠 이름 팻말(위)과 역할 글씨(아래)가 잘리지 않게 위아래로 같은 여유를 둔다.
     const gPad = GROUP_LABEL_OFFSET[size];
-    const scale = pixelScale(positions, size, { top: gPad, bottom: gPad });
+    const scale = pixelScale(positions, size, SOURCE_CELL.group, { top: gPad, bottom: gPad });
     const groupOrder = uniqueSorted(positions.map((p) => p.groupIndex ?? 0));
     body = (
       <div
@@ -332,8 +338,11 @@ export function SeatBoard({
             <span
               key={g}
               data-group-index={g}
-              style={{ left: `${left}px`, top: `${top - GROUP_LABEL_OFFSET[size]}px` }}
-              className={`absolute -translate-x-1/2 whitespace-nowrap font-hand font-bold text-ink ${GROUP_TEXT[size]}`}
+              // top은 블록에서 화면상 가장 위에 오는 좌석의 "중심"이다. 팻말 높이는
+              // 글꼴에 따라 달라지므로 -translate-y-full로 팻말의 아래쪽을 좌석 윗변
+              // 바로 위에 붙인다(고정 오프셋으로 빼면 이름표에 가려진다).
+              style={{ left: `${left}px`, top: `${top - SLOT_PX[size].h / 2 - LABEL_GAP}px` }}
+              className={`absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap font-hand font-bold leading-none text-ink ${GROUP_TEXT[size]}`}
             >
               {groupNames?.[g] ?? `${g + 1}모둠`}
             </span>
