@@ -19,8 +19,8 @@ type Props = {
 
 export function seatLabel(index: number, state: NoteSeatState, name?: string, canRestore = true): string {
   const n = index + 1;
-  // R38: onRestore가 없으면 되살릴 수 없는데 "되살리기"라고 약속하는 문구를 쓰지 않는다.
-  if (state === 'disabled') return canRestore ? `${n}번 자리 되살리기` : `${n}번 자리 (삭제됨)`;
+  // R38: onRestore가 없으면 되살릴 수 없는데 "다시 쓰기"라고 약속하는 문구를 쓰지 않는다.
+  if (state === 'disabled') return canRestore ? `${n}번 자리 다시 쓰기` : `${n}번 자리 (빈 자리로 둠)`;
   if (state === 'empty' || !name) return `${n}번 자리 (빈 자리)`;
   return `${n}번 자리: ${name}${state === 'fixed' ? ' (고정)' : ''}`;
 }
@@ -35,7 +35,7 @@ export function NoteSeat({
   onRestore,
   highlight = false,
 }: Props) {
-  // R35: 이 상태가 "삭제되어 되살리기가 필요한 좌석"임을 나타낸다. 네이티브
+  // R35: 이 상태가 "빈 자리로 둬서 다시 써야 하는 좌석"임을 나타낸다. 네이티브
   // disabled 속성(R32)과 이름이 겹치지 않도록 isRemoved로 부른다.
   const isRemoved = state === 'disabled';
   // R37: state가 empty면 name이 있어도 빈 자리로 표시해 라벨과 화면 내용을 일치시킨다.
@@ -70,8 +70,8 @@ export function NoteSeat({
           ink를 사용한다 (src/styles/contrast.test.ts 참고). */}
       <span className="font-body text-[10px] font-normal text-ink">{index + 1}</span>
       {isRemoved ? (
-        // R38: onRestore가 없으면 되살릴 수 없으므로 "되살리기"를 약속하는 문구를 쓰지 않는다.
-        <span>{onRestore ? '되살리기' : '삭제된 자리'}</span>
+        // R38: onRestore가 없으면 되살릴 수 없으므로 "다시 쓰기"를 약속하는 문구를 쓰지 않는다.
+        <span>{onRestore ? '다시 쓰기' : '빈 자리로 둠'}</span>
       ) : showEmpty ? (
         // R30: opacity 합성(~3.0:1)이 아니라 ink 색 + normal weight로 "비어있음"을 표현한다.
         <span className="text-ink font-normal">빈 자리</span>

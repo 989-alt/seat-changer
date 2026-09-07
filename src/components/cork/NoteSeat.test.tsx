@@ -18,27 +18,27 @@ describe('NoteSeat', () => {
     render(<NoteSeat index={14} state="empty" />);
     expect(screen.getByRole('button', { name: '15번 자리 (빈 자리)' })).toHaveTextContent('빈 자리');
   });
-  it('삭제된 자리는 되살리기', async () => {
+  it('빈 자리로 둔 자리는 다시 쓰기', async () => {
     const onRestore = vi.fn();
     render(<NoteSeat index={9} state="disabled" onRestore={onRestore} />);
-    const b = screen.getByRole('button', { name: '10번 자리 되살리기' });
-    expect(b).toHaveTextContent('되살리기');
+    const b = screen.getByRole('button', { name: '10번 자리 다시 쓰기' });
+    expect(b).toHaveTextContent('다시 쓰기');
     await userEvent.click(b);
     expect(onRestore).toHaveBeenCalledTimes(1);
   });
 
-  // R38: onRestore가 없으면 되살릴 수 없으므로 "되살리기"를 약속하는 문구를 쓰지 않는다.
-  it('R38: onRestore가 있는 삭제된 자리는 되살리기 문구를 쓰고 활성 상태다', () => {
+  // R38: onRestore가 없으면 되살릴 수 없으므로 "다시 쓰기"를 약속하는 문구를 쓰지 않는다.
+  it('R38: onRestore가 있는 빈 자리는 다시 쓰기 문구를 쓰고 활성 상태다', () => {
     render(<NoteSeat index={9} state="disabled" onRestore={() => {}} />);
-    const b = screen.getByRole('button', { name: '10번 자리 되살리기' });
-    expect(b).toHaveTextContent('되살리기');
+    const b = screen.getByRole('button', { name: '10번 자리 다시 쓰기' });
+    expect(b).toHaveTextContent('다시 쓰기');
     expect(b).toBeEnabled();
   });
 
-  it('R38: onRestore가 없는 삭제된 자리는 (삭제됨) 문구를 쓰고 disabled 상태다', () => {
+  it('R38: onRestore가 없는 빈 자리는 (빈 자리로 둠) 문구를 쓰고 disabled 상태다', () => {
     render(<NoteSeat index={9} state="disabled" />);
-    const b = screen.getByRole('button', { name: '10번 자리 (삭제됨)' });
-    expect(b).toHaveTextContent('삭제된 자리');
+    const b = screen.getByRole('button', { name: '10번 자리 (빈 자리로 둠)' });
+    expect(b).toHaveTextContent('빈 자리로 둠');
     expect(b).toBeDisabled();
   });
   it('일반 클릭', async () => {
@@ -61,7 +61,7 @@ describe('NoteSeat', () => {
   });
 
   // R31: 삭제(disabled) 룩 회귀 가드 — cork 위 paper 텍스트(2.57:1) 금지.
-  it('R31: 삭제된 자리 룩은 cork-dark 점선 테두리 + paper 배경 + ink 텍스트이고 paper 텍스트를 쓰지 않는다', () => {
+  it('R31: 빈 자리로 둔 자리 룩은 cork-dark 점선 테두리 + paper 배경 + ink 텍스트이고 paper 텍스트를 쓰지 않는다', () => {
     render(<NoteSeat index={9} state="disabled" onRestore={() => {}} />);
     const b = screen.getByRole('button');
     expect(b.className).toContain('border-dashed');

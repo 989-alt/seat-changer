@@ -183,7 +183,7 @@ export function RulesCard() {
                     </span>
                     <button
                       type="button"
-                      aria-label={`${f.studentName} - ${f.seatIndex + 1}번 자리 삭제`}
+                      aria-label={`${f.studentName} - ${f.seatIndex + 1}번 자리 고정 해제`}
                       className={iconBtnClass}
                       onClick={() => removeFixed(f.studentName, f.seatIndex)}
                     >

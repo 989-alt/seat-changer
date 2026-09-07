@@ -29,7 +29,7 @@ describe('RulesCard', () => {
     expect(useAppStore.getState().data.fixedSeats).toEqual([{ studentName: '가람', seatIndex: 2 }]);
     expect(screen.getByText('가람 - 3번 자리')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '가람 - 3번 자리 삭제' }));
+    await user.click(screen.getByRole('button', { name: '가람 - 3번 자리 고정 해제' }));
     expect(useAppStore.getState().data.fixedSeats).toEqual([]);
   });
 

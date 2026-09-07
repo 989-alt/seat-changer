@@ -174,10 +174,10 @@ describe('SeatBoard 비활성 좌석', () => {
     layoutSettings: { columns: 3, rows: 1, disabledSeats: [1] } as never,
   });
 
-  it('editable이면 되살리기 버튼을 눌러 복구를 요청한다', async () => {
+  it('editable이면 다시 쓰기 버튼을 눌러 복구를 요청한다', async () => {
     const onSeatRestore = vi.fn();
     render(<SeatBoard data={data} editable onSeatRestore={onSeatRestore} />);
-    await userEvent.click(screen.getByRole('button', { name: '2번 자리 되살리기' }));
+    await userEvent.click(screen.getByRole('button', { name: '2번 자리 다시 쓰기' }));
     expect(onSeatRestore).toHaveBeenCalledWith(1);
   });
 

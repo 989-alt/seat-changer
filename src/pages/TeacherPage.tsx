@@ -118,8 +118,8 @@ export function TeacherPage() {
   const removeSeat = (seatIndex: number) => {
     setSelectedSeat(null);
     deleteSeat(seatIndex);
-    push(String(seatIndex + 1) + '번 자리를 삭제했습니다.', {
-      label: '되돌리기',
+    push(String(seatIndex + 1) + '번을 빈 자리로 두었습니다.', {
+      label: '다시 쓰기',
       onAction: () => restoreSeat(seatIndex),
     });
   };
@@ -206,9 +206,9 @@ export function TeacherPage() {
                     size="md"
                     onClick={() => removeSeat(selectedSeat)}
                     icon={<Trash2 aria-hidden className="pointer-events-none h-4 w-4" />}
-                    aria-label={String(selectedSeat + 1) + '번 자리 삭제'}
+                    aria-label={String(selectedSeat + 1) + '번 - 이 자리는 빈 자리로'}
                   >
-                    이 자리 삭제
+                    이 자리는 빈 자리로
                   </WoodButton>
                   <WoodButton
                     variant="secondary"

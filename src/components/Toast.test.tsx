@@ -25,12 +25,12 @@ describe('ToastHost', () => {
   it('push한 메시지가 뜨고 닫기 버튼으로 지울 수 있다', () => {
     render(<ToastHost />);
     act(() => {
-      useToasts.getState().push('3번 자리를 삭제했습니다.');
+      useToasts.getState().push('3번을 빈 자리로 두었습니다.');
     });
-    expect(screen.getByText('3번 자리를 삭제했습니다.')).toBeInTheDocument();
+    expect(screen.getByText('3번을 빈 자리로 두었습니다.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '알림 닫기' }));
-    expect(screen.queryByText('3번 자리를 삭제했습니다.')).toBeNull();
+    expect(screen.queryByText('3번을 빈 자리로 두었습니다.')).toBeNull();
   });
 
   it('액션 없는 토스트는 5초 뒤 자동으로 사라진다', () => {
@@ -50,18 +50,18 @@ describe('ToastHost', () => {
     const onAction = vi.fn();
     render(<ToastHost />);
     act(() => {
-      useToasts.getState().push('3번 자리를 삭제했습니다.', { label: '되돌리기', onAction });
+      useToasts.getState().push('3번을 빈 자리로 두었습니다.', { label: '되돌리기', onAction });
     });
 
     act(() => {
       vi.advanceTimersByTime(5000);
     });
-    expect(screen.getByText('3번 자리를 삭제했습니다.')).toBeInTheDocument();
+    expect(screen.getByText('3번을 빈 자리로 두었습니다.')).toBeInTheDocument();
 
     act(() => {
       vi.advanceTimersByTime(3000);
     });
-    expect(screen.queryByText('3번 자리를 삭제했습니다.')).toBeNull();
+    expect(screen.queryByText('3번을 빈 자리로 두었습니다.')).toBeNull();
     expect(onAction).not.toHaveBeenCalled();
   });
 
@@ -69,12 +69,12 @@ describe('ToastHost', () => {
     const onAction = vi.fn();
     render(<ToastHost />);
     act(() => {
-      useToasts.getState().push('3번 자리를 삭제했습니다.', { label: '되돌리기', onAction });
+      useToasts.getState().push('3번을 빈 자리로 두었습니다.', { label: '되돌리기', onAction });
     });
 
     fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
     expect(onAction).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('3번 자리를 삭제했습니다.')).toBeNull();
+    expect(screen.queryByText('3번을 빈 자리로 두었습니다.')).toBeNull();
   });
 
   it('loadNotice가 생기면 토스트로 띄우고 clearNotice를 호출한다', () => {

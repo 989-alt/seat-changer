@@ -50,7 +50,7 @@ describe('LayoutCard', () => {
 
   it('삭제한 자리가 없으면 복구 버튼이 disabled', async () => {
     render(<LayoutCard />);
-    expect(screen.getByRole('button', { name: /삭제한 자리 모두 복구/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /빈 자리로 둔 곳 모두 다시 쓰기/ })).toBeDisabled();
   });
 
   it('삭제한 자리가 있으면 복구 버튼이 눌리고 개수를 보여준다', async () => {
@@ -58,7 +58,7 @@ describe('LayoutCard', () => {
     useAppStore.getState().deleteSeat(2);
     useAppStore.getState().deleteSeat(3);
     render(<LayoutCard />);
-    const btn = screen.getByRole('button', { name: /삭제한 자리 모두 복구/ });
+    const btn = screen.getByRole('button', { name: /빈 자리로 둔 곳 모두 다시 쓰기/ });
     expect(btn).toHaveTextContent('2개');
     await user.click(btn);
     expect(useAppStore.getState().data.layoutSettings.disabledSeats).toEqual([]);

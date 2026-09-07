@@ -99,7 +99,7 @@ describe('TeacherPage', () => {
     expect(firstSeat).not.toBeNull();
     await userEvent.click(firstSeat as Element);
     expect(screen.getByTestId('seat-popover')).toHaveTextContent('1번 자리');
-    await userEvent.click(screen.getByRole('button', { name: '1번 자리 삭제' }));
+    await userEvent.click(screen.getByRole('button', { name: '1번 - 이 자리는 빈 자리로' }));
     expect(screen.queryByTestId('seat-popover')).toBeNull();
     expect(useAppStore.getState().data.layoutSettings.disabledSeats).toContain(0);
   });

@@ -96,8 +96,8 @@ test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
     await expect(page.locator('[data-cork="wood-button"]').first()).toBeVisible();
 
     // R38: 삭제 좌석은 onRestore 유무에 따라 문구가 갈린다.
-    await expect(seats(page).filter({ hasText: '되살리기' })).toHaveCount(1);
-    await expect(seats(page).filter({ hasText: '삭제된 자리' })).toHaveCount(1);
+    await expect(seats(page).filter({ hasText: '다시 쓰기' })).toHaveCount(1);
+    await expect(seats(page).filter({ hasText: '빈 자리로 둠' })).toHaveCount(1);
 
     // R44: 뒤 단언이 실패해도 G7이 볼 그림은 남도록 여기서 바로 찍는다.
     await page.screenshot({ path: 'test-results/dev-cork.png', fullPage: true });
@@ -163,11 +163,11 @@ test.describe('/dev/cork 코르크 컴포넌트 갤러리', () => {
     expect(total).toBeGreaterThan(0);
     for (let i = 0; i < total; i += 1) {
       const s = all.nth(i);
-      const removedWithoutRestore = ((await s.textContent()) ?? '').includes('삭제된 자리');
+      const removedWithoutRestore = ((await s.textContent()) ?? '').includes('빈 자리로 둠');
       if (removedWithoutRestore) await expect(s).toBeDisabled();
       else await expect(s).toBeEnabled();
     }
-    await expect(all.filter({ hasText: '삭제된 자리' })).toHaveCount(1);
+    await expect(all.filter({ hasText: '빈 자리로 둠' })).toHaveCount(1);
   });
 
   test('5자 이름이 잘리지 않고, 이미지 요청이 하나도 없다', async ({ page }) => {

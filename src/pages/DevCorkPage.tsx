@@ -13,7 +13,7 @@ const NAMES = [
 const GRID_SIZE = 15;
 /** 고정(fixed) 좌석 자리. */
 const FIXED_INDEX = 2;
-/** 되살릴 수 있는 삭제 좌석 자리(onRestore 있음 → "되살리기"). */
+/** 다시 쓸 수 있는 빈 자리(onRestore 있음 → "다시 쓰기"). */
 const REMOVED_INDEX = 9;
 /** 빈 좌석 자리. */
 const EMPTY_INDEX = 14;
@@ -72,7 +72,7 @@ export function DevCorkPage() {
               const variant = (i % 3) as 0 | 1 | 2;
               if (i === FIXED_INDEX)
                 return <NoteSeat key={i} index={i} name="이도윤" state="fixed" variant={variant} onClick={count} />;
-              // R38: onRestore가 있으므로 "되살리기"로 표시된다.
+              // R38: onRestore가 있으므로 "다시 쓰기"로 표시된다.
               if (i === REMOVED_INDEX) return <NoteSeat key={i} index={i} state="disabled" onRestore={count} />;
               if (i === EMPTY_INDEX) return <NoteSeat key={i} index={i} state="empty" onClick={count} />;
               return (
@@ -91,7 +91,7 @@ export function DevCorkPage() {
             <NoteSeat index={0} name="황보아리랑" state="assigned" size="lg" onClick={count} />
             <NoteSeat index={1} name="이도윤" state="fixed" size="lg" onClick={count} />
             <NoteSeat index={2} state="empty" size="lg" onClick={count} />
-            {/* R38: onRestore가 없으므로 "삭제된 자리"로 표시되고 네이티브 disabled가 된다. */}
+            {/* R38: onRestore가 없으므로 "빈 자리로 둠"으로 표시되고 네이티브 disabled가 된다. */}
             <NoteSeat index={3} state="disabled" size="lg" />
           </div>
           <ChalkBoard kind="podium" />

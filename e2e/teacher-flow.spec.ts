@@ -1,6 +1,6 @@
 // 교사 화면 핵심 흐름 (스펙 8절 E2E 목록)
 //   - 명단 입력·저장
-//   - 좌석 삭제 -> 되돌리기 토스트 -> 복구
+//   - 자리를 빈 자리로 -> 토스트의 다시 쓰기 -> 복구
 //   - 규칙 검사가 이력을 남기지 않는다
 import { test, expect } from '@playwright/test';
 
@@ -19,15 +19,15 @@ test('명단을 입력하고 저장하면 저장소와 배치도에 반영된다
   expect(saved.schemaVersion).toBe(2);
 });
 
-test('좌석을 삭제하면 토스트의 되돌리기로 복구된다', async ({ page }) => {
+test('자리를 빈 자리로 두면 토스트의 다시 쓰기로 되돌린다', async ({ page }) => {
   await page.goto('/');
   const board = page.getByTestId('seat-board');
   const seatCountBefore = await board.locator('[data-seat]').count();
 
   await board.locator('[data-seat="5"]').click();
-  await page.getByTestId('seat-popover').getByRole('button', { name: /삭제/ }).click();
+  await page.getByTestId('seat-popover').getByRole('button', { name: /빈 자리로/ }).click();
 
-  // 삭제가 저장소에 반영된다
+  // 빈 자리 표시가 저장소에 반영된다
   await expect
     .poll(async () =>
       page.evaluate(
@@ -36,8 +36,8 @@ test('좌석을 삭제하면 토스트의 되돌리기로 복구된다', async (
     )
     .toEqual([5]);
 
-  // 토스트의 되돌리기로 복구
-  await page.getByRole('status').getByRole('button', { name: '되돌리기' }).click();
+  // 토스트의 다시 쓰기로 되돌린다
+  await page.getByRole('status').getByRole('button', { name: '다시 쓰기' }).click();
   await expect
     .poll(async () =>
       page.evaluate(

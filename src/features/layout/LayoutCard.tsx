@@ -69,7 +69,7 @@ export function LayoutCard() {
   const applyGrid = (columns: number, rows: number) => {
     const { clearedDisabled } = setGridSize(columns, rows);
     if (clearedDisabled > 0) {
-      push(`행·열을 바꿔 삭제한 자리 ${clearedDisabled}개를 되살렸습니다.`);
+      push(`행·열을 바꿔 빈 자리로 둔 곳 ${clearedDisabled}개를 모두 다시 씁니다.`);
     }
   };
 
@@ -107,11 +107,11 @@ export function LayoutCard() {
             type="button"
             onClick={restoreAllSeats}
             disabled={disabledCount === 0}
-            aria-label={`삭제한 자리 모두 복구 (${disabledCount}개)`}
+            aria-label={`빈 자리로 둔 곳 모두 다시 쓰기 (${disabledCount}개)`}
             className={HEADER_BTN}
           >
             <RotateCcw size={16} aria-hidden="true" className="pointer-events-none" />
-            삭제한 자리 모두 복구 ({disabledCount}개)
+            빈 자리로 둔 곳 모두 다시 쓰기 ({disabledCount}개)
           </button>
           <button type="button" onClick={() => undo()} disabled={!canUndo} aria-label="되돌리기" className={HEADER_BTN}>
             <Undo2 size={16} aria-hidden="true" className="pointer-events-none" />
@@ -161,7 +161,7 @@ export function LayoutCard() {
               max={MAX_GRID}
               onCommit={(v) => applyGrid(ls.columns, v)}
             />
-            <span className="text-mute">행·열을 바꾸면 삭제한 자리는 모두 되살아납니다.</span>
+            <span className="text-mute">행·열을 바꾸면 빈 자리로 둔 곳은 모두 다시 쓰입니다.</span>
           </div>
         )}
 
