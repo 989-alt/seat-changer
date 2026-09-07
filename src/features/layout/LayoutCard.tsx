@@ -44,6 +44,10 @@ export function LayoutCard() {
   const updateLayoutSettings = useAppStore((s) => s.updateLayoutSettings);
   const setGridSize = useAppStore((s) => s.setGridSize);
   const restoreAllSeats = useAppStore((s) => s.restoreAllSeats);
+  const setCustomDesks = useAppStore((s) => s.setCustomDesks);
+  const removeCustomDesks = useAppStore((s) => s.removeCustomDesks);
+  const disableSeats = useAppStore((s) => s.disableSeats);
+  const restoreSeats = useAppStore((s) => s.restoreSeats);
   const push = useToasts((s) => s.push);
   const { undo, redo, pastStates, futureStates } = useTemporal();
 
@@ -100,7 +104,7 @@ export function LayoutCard() {
   };
 
   return (
-    <PaperCard title="배치" tilt="r">
+    <PaperCard title="배치">
       <div data-card="layout">
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -225,7 +229,11 @@ export function LayoutCard() {
         {data.layoutType === 'custom' && (
           <CustomDeskEditor
             desks={ls.customDesks}
-            onChange={(customDesks) => updateLayoutSettings({ customDesks })}
+            disabledSeats={ls.disabledSeats}
+            onChange={setCustomDesks}
+            onRemove={removeCustomDesks}
+            onDisable={disableSeats}
+            onRestore={restoreSeats}
           />
         )}
       </div>

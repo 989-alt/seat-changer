@@ -607,3 +607,81 @@ describe('탭 간 storage 동기화 (R88, 레거시 initSync 동등)', () => {
     expect(s().data.students).toEqual(['클리어반영']);
   });
 });
+
+describe('자유배치 책상과 좌석 번호', () => {
+  /** 책상 n개짜리 자유배치 반. */
+  function bootCustom(n: number) {
+    const { s } = boot();
+    s().update({
+      layoutType: 'custom',
+      students: Array.from({ length: n }, (_, i) => `학생${i + 1}`),
+      classSize: n,
+    });
+    s().setCustomDesks(Array.from({ length: n }, (_, i) => ({ x: i * 80, y: 0 })));
+    return s;
+  }
+
+  it('여러 자리를 한꺼번에 빈 자리로 두고 되돌린다', () => {
+    const s = bootCustom(5);
+    s().disableSeats([3, 1]);
+    expect(s().data.layoutSettings.disabledSeats).toEqual([1, 3]);
+    s().restoreSeats([1]);
+    expect(s().data.layoutSettings.disabledSeats).toEqual([3]);
+  });
+
+  it('빈 자리로 두면 그 자리에 걸린 고정은 풀린다', () => {
+    const s = bootCustom(5);
+    s().update({ fixedSeats: [{ studentName: '학생1', seatIndex: 2 }] });
+    s().disableSeats([2]);
+    expect(s().data.fixedSeats).toEqual([]);
+  });
+
+  it('없는 자리 번호나 이미 빈 자리인 번호는 무시한다', () => {
+    const s = bootCustom(3);
+    s().disableSeats([1]);
+    const before = s().data;
+    s().disableSeats([1, 99, -1]);
+    expect(s().data).toBe(before);
+  });
+
+  it('책상을 지우면 빈 자리 번호가 함께 당겨진다', () => {
+    const s = bootCustom(6);
+    s().disableSeats([4]);
+    s().removeCustomDesks([1]);
+    // 옛 4번 = 새 3번
+    expect(s().data.layoutSettings.customDesks).toHaveLength(5);
+    expect(s().data.layoutSettings.disabledSeats).toEqual([3]);
+  });
+
+  it('책상을 지우면 고정 자리 번호도 함께 당겨진다', () => {
+    const s = bootCustom(6);
+    s().update({
+      fixedSeats: [
+        { studentName: '학생1', seatIndex: 0 },
+        { studentName: '학생5', seatIndex: 5 },
+      ],
+    });
+    s().removeCustomDesks([2, 3]);
+    expect(s().data.fixedSeats).toEqual([
+      { studentName: '학생1', seatIndex: 0 },
+      { studentName: '학생5', seatIndex: 3 },
+    ]);
+  });
+
+  it('지운 책상에 걸려 있던 빈 자리·고정 자리는 사라진다', () => {
+    const s = bootCustom(4);
+    s().disableSeats([2]);
+    s().update({ fixedSeats: [{ studentName: '학생3', seatIndex: 2 }] });
+    s().removeCustomDesks([2]);
+    expect(s().data.layoutSettings.disabledSeats).toEqual([]);
+    expect(s().data.fixedSeats).toEqual([]);
+  });
+
+  it('책상을 옮기거나 더하는 것은 좌석 번호를 건드리지 않는다', () => {
+    const s = bootCustom(3);
+    s().disableSeats([1]);
+    s().setCustomDesks([...s().data.layoutSettings.customDesks, { x: 400, y: 200 }]);
+    expect(s().data.layoutSettings.disabledSeats).toEqual([1]);
+    expect(s().data.layoutSettings.customDesks).toHaveLength(4);
+  });
+});

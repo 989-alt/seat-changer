@@ -20,7 +20,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { Eraser, Plus, Trash, Trash2 } from 'lucide-react';
+import { Ban, Eraser, Plus, RotateCcw, Trash, Trash2 } from 'lucide-react';
 import type { Desk } from '@/core/model/types';
 import {
   DESK_H,
@@ -33,7 +33,6 @@ import {
   desksInRect,
   indexRange,
   moveSelection,
-  removeIndices,
   snap,
   toggleIndex,
   type Rect,
@@ -50,7 +49,7 @@ type Mode = 'select' | 'add' | 'erase';
 
 const HINT: Record<Mode, string> = {
   select:
-    '책상을 눌러 고르고 끌어서 옮깁니다. Ctrl+클릭은 하나씩 더, Shift+클릭은 사이를 모두, 빈 곳을 끌면 사각형 안을 모두 고릅니다. Delete와 방향키는 고른 책상 전부에 적용됩니다.',
+    '책상을 눌러 고르고 끌어서 옮깁니다. Ctrl+클릭은 하나씩 더, Shift+클릭은 사이를 모두, 빈 곳을 끌면 사각형 안을 모두 고릅니다. 고른 책상은 아래에서 삭제하거나 빈 자리로 둘 수 있습니다.',
   add: '빈 곳을 누르면 책상이 하나씩 생깁니다. 끝내려면 ESC를 누르거나 [책상 추가]를 다시 누르세요.',
   erase: '지울 책상을 누르세요. 끝내려면 ESC를 누르거나 [책상 지우기]를 다시 누르세요.',
 };
@@ -131,10 +130,19 @@ const DISABLED = 'disabled:cursor-not-allowed disabled:border-mute disabled:text
 
 export interface CustomDeskEditorProps {
   desks: Desk[];
+  /** 빈 자리로 둔 좌석 번호(= 책상 번호). */
+  disabledSeats: number[];
+  /** 옮기거나 더한 결과. 좌석 번호는 그대로다. */
   onChange: (desks: Desk[]) => void;
+  /** 지운 책상 번호. 뒤 번호가 당겨지므로 스토어가 빈 자리·고정 자리도 함께 옮긴다. */
+  onRemove: (indexes: number[]) => void;
+  onDisable: (indexes: number[]) => void;
+  onRestore: (indexes: number[]) => void;
 }
 
-export function CustomDeskEditor({ desks, onChange }: CustomDeskEditorProps) {
+export function CustomDeskEditor({
+  desks, disabledSeats, onChange, onRemove, onDisable, onRestore,
+}: CustomDeskEditorProps) {
   const [mode, setMode] = useState<Mode>('select');
   const [selected, setSelected] = useState<number[]>([]);
   // Shift+클릭 범위의 기준점.
@@ -146,11 +154,16 @@ export function CustomDeskEditor({ desks, onChange }: CustomDeskEditorProps) {
   // 그래서 편집기를 열 때, 그리고 밖에서 책상이 통째로 바뀔 때(반 전환·가져오기·
   // 실행취소)만 다시 잡는다. 편집기가 스스로 만든 변화는 commit이 표시해 둔다.
   const committedRef = useRef<Desk[] | null>(null);
+  // 지우기는 스토어가 새 배열을 만들어 돌려주므로 "밖에서 바뀐 것"과 구분이 안 된다.
+  // 편집기가 지운 것이면 화면이 다시 가운데로 튀지 않게 뷰포트를 그대로 둔다.
+  const selfEditRef = useRef(false);
   const [viewport, setViewport] = useState<Viewport>(() => computeViewport(desks));
   useLayoutEffect(() => {
     if (committedRef.current === desks) return;
+    const self = selfEditRef.current;
+    selfEditRef.current = false;
     committedRef.current = desks;
-    setViewport(computeViewport(desks));
+    if (!self) setViewport(computeViewport(desks));
     setSelected([]);
     anchorRef.current = null;
   }, [desks]);
@@ -197,7 +210,8 @@ export function CustomDeskEditor({ desks, onChange }: CustomDeskEditorProps) {
 
   const deleteDesks = (indices: number[]) => {
     if (indices.length === 0) return;
-    commit(removeIndices(desks, indices));
+    selfEditRef.current = true;
+    onRemove(indices);
     selectOnly(null);
   };
 
@@ -368,6 +382,7 @@ export function CustomDeskEditor({ desks, onChange }: CustomDeskEditorProps) {
   };
 
   const selectedSet = new Set(selected);
+  const disabledSet = new Set(disabledSeats);
   const sel = selected.length === 1 ? desks[selected[0]!] : undefined;
   const limits = deskLimits(viewport);
 
@@ -395,20 +410,8 @@ export function CustomDeskEditor({ desks, onChange }: CustomDeskEditorProps) {
         </button>
         <button
           type="button"
-          onClick={() => deleteDesks(selected)}
-          disabled={selected.length === 0}
-          className={`${MODE_BTN} ${OFF} ${DISABLED}`}
-        >
-          <Trash2 size={16} aria-hidden="true" className="pointer-events-none" />
-          {/* 개수를 늘 붙여 둔다(0개도 표시). 고를 때마다 버튼 폭이 바뀌면 줄바꿈이
-              달라져 아래 보드가 위아래로 튄다. 헤더의 "삭제한 자리 모두 복구 (0개)"와 같은 표기다. */}
-          고른 책상 삭제 ({selected.length}개)
-        </button>
-        <button
-          type="button"
           onClick={() => {
-            commit([]);
-            selectOnly(null);
+            deleteDesks(desks.map((_, i) => i));
             setMode('select');
           }}
           disabled={desks.length === 0}
@@ -459,6 +462,7 @@ export function CustomDeskEditor({ desks, onChange }: CustomDeskEditorProps) {
             )}
             {desks.map((d, i) => {
               const on = selectedSet.has(i);
+              const off = disabledSet.has(i);
               const shift = live && on ? live : { dx: 0, dy: 0 };
               return (
                 <button
@@ -477,17 +481,59 @@ export function CustomDeskEditor({ desks, onChange }: CustomDeskEditorProps) {
                     width: DESK_W,
                     height: DESK_H,
                   }}
-                  className={`absolute rounded-note border-2 font-hand text-[15px] font-bold text-ink shadow-note ${
-                    on ? 'border-apple bg-paper-2' : 'border-cork-dark bg-paper'
-                  }`}
+                  className={`absolute rounded-note font-hand text-[15px] font-bold text-ink ${
+                    off ? 'border-2 border-dashed bg-paper-2' : 'border-2 shadow-note'
+                  } ${on ? 'border-apple' : 'border-cork-dark'} ${off ? '' : 'bg-paper'}`}
                 >
-                  {i + 1}
+                  {off ? (
+                    <span className="flex h-full flex-col items-center justify-center leading-tight">
+                      <span>{i + 1}</span>
+                      <span className="text-[11px] font-normal">빈 자리</span>
+                    </span>
+                  ) : (
+                    i + 1
+                  )}
                 </button>
               );
             })}
           </div>
         </div>
       </div>
+
+      {selected.length > 0 && (
+        <div
+          data-testid="desk-selection-actions"
+          className="mt-2 flex flex-wrap items-center gap-2 font-body text-sm text-ink"
+        >
+          <span className="font-bold">고른 책상 {selected.length}개</span>
+          <button
+            type="button"
+            onClick={() => deleteDesks(selected)}
+            className={`${MODE_BTN} ${OFF} ${DISABLED}`}
+          >
+            <Trash2 size={16} aria-hidden="true" className="pointer-events-none" />
+            고른 책상 삭제 ({selected.length}개)
+          </button>
+          <button
+            type="button"
+            onClick={() => onDisable(selected.filter((i) => !disabledSet.has(i)))}
+            disabled={selected.every((i) => disabledSet.has(i))}
+            className={`${MODE_BTN} ${OFF} ${DISABLED}`}
+          >
+            <Ban size={16} aria-hidden="true" className="pointer-events-none" />
+            고른 자리 빈 자리로
+          </button>
+          <button
+            type="button"
+            onClick={() => onRestore(selected.filter((i) => disabledSet.has(i)))}
+            disabled={!selected.some((i) => disabledSet.has(i))}
+            className={`${MODE_BTN} ${OFF} ${DISABLED}`}
+          >
+            <RotateCcw size={16} aria-hidden="true" className="pointer-events-none" />
+            다시 쓰기
+          </button>
+        </div>
+      )}
 
       {sel && selected.length === 1 && (
         <div className="mt-2 flex flex-wrap items-center gap-2 font-body text-sm text-ink">

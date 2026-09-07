@@ -51,6 +51,11 @@ export function NoteSeat({
     : `${VARIANT[variant]} text-ink shadow-note`;
   // R33: gold 링은 cork(1.34:1)·paper(1.9:1) 모두 대비 미달이라 ink로 교체한다.
   const ring = highlight ? 'ring-4 ring-ink' : '';
+  // 누를 수 있는 좌석은 그렇게 보여야 한다(예전에는 커서도 안 바뀌어 아무도 누를
+  // 생각을 못 했다). 색이 아니라 커서와 테두리로만 알린다.
+  const interactive = handler
+    ? 'cursor-pointer hover:ring-2 hover:ring-ink focus-visible:ring-2 focus-visible:ring-ink'
+    : '';
   return (
     <button
       type="button"
@@ -62,7 +67,7 @@ export function NoteSeat({
       aria-label={seatLabel(index, state, name, Boolean(onRestore))}
       onClick={handler}
       disabled={!handler}
-      className={`${base} ${look} ${ring} ${SIZE[size]}`}
+      className={`${base} ${look} ${ring} ${interactive} ${SIZE[size]}`}
     >
       {!isRemoved && <Tape />}
       {state === 'fixed' && <PushPin color="gold" />}

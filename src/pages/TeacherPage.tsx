@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Circle, Eye, Trash2, X } from 'lucide-react';
 import { WoodButton } from '@/components/cork/WoodButton';
 import { ToastHost } from '@/components/Toast';
@@ -124,6 +124,38 @@ export function TeacherPage() {
     });
   };
 
+  // 팝오버는 누른 자리 옆에 뜬다. 예전에는 카드 맨 위에 떠서, 아래쪽 자리를 누르면
+  // 눈이 가지 않는 곳에 나타났다(기능이 없는 줄 알기 쉽다).
+  // 배치도는 transform: scale 안에 있으므로 흐름 안에 놓지 않고 화면 좌표로 띄운다.
+  const [popAt, setPopAt] = useState<{ left: number; top: number; above: boolean } | null>(null);
+  useLayoutEffect(() => {
+    if (selectedSeat === null) {
+      setPopAt(null);
+      return;
+    }
+    const place = () => {
+      const el = document.querySelector(`[data-testid="seat-board"] [data-seat="${selectedSeat}"]`);
+      if (!el) {
+        setPopAt(null);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      const above = r.bottom + 96 > window.innerHeight;
+      setPopAt({
+        left: Math.min(Math.max(r.left + r.width / 2, 180), window.innerWidth - 180),
+        top: above ? r.top - 8 : r.bottom + 8,
+        above,
+      });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [selectedSeat, data.layoutType, data.viewPerspective]);
+
   const togglePerspective = () => {
     update({ viewPerspective: data.viewPerspective === 'student' ? 'teacher' : 'student' });
   };
@@ -195,10 +227,21 @@ export function TeacherPage() {
                 </WoodButton>
               </div>
 
-              {selectedSeat !== null && (
+              <p className="mt-1 font-body text-xs text-ink">
+                자리를 누르면 그 자리를 빈 자리로 둘 수 있습니다.
+              </p>
+
+              {selectedSeat !== null && popAt && (
                 <div
                   data-testid="seat-popover"
-                  className="mt-3 flex flex-wrap items-center gap-2 rounded-note border-2 border-cork-dark bg-paper-2 px-3 py-2 font-body text-[14px] text-ink"
+                  style={{
+                    position: 'fixed',
+                    left: popAt.left,
+                    top: popAt.top,
+                    transform: `translate(-50%, ${popAt.above ? '-100%' : '0'})`,
+                    zIndex: 30,
+                  }}
+                  className="flex flex-wrap items-center gap-2 rounded-note border-2 border-cork-dark bg-paper-2 px-3 py-2 font-body text-[14px] text-ink shadow-card"
                 >
                   <span className="font-bold">{selectedSeat + 1}번 자리</span>
                   <WoodButton

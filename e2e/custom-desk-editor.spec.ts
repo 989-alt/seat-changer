@@ -242,3 +242,70 @@ test('모두 지우기로 한 번에 비운다', async ({ page }) => {
   await expect(board).toBeVisible();
   expect(await storedDesks(page)).toEqual([]);
 });
+
+/** 저장소에 들어간 빈 자리 번호. */
+function storedDisabled(page: Page): Promise<number[]> {
+  return page.evaluate(
+    () => JSON.parse(localStorage.getItem('seat-changer-data-6-5')!).layoutSettings.disabledSeats,
+  );
+}
+
+test('편집기에서 고른 자리를 빈 자리로 두고 다시 쓴다', async ({ page }) => {
+  await openEditor(page);
+  const desk = (i: number) => page.locator('[data-desk]').nth(i);
+  await desk(2).click();
+  await desk(4).click({ modifiers: ['Control'] });
+  await page
+    .getByTestId('desk-selection-actions')
+    .getByRole('button', { name: '고른 자리 빈 자리로' })
+    .click();
+
+  await expect.poll(() => storedDisabled(page)).toEqual([2, 4]);
+  await expect(desk(2)).toContainText('빈 자리');
+  await expect(desk(4)).toContainText('빈 자리');
+  // 배치도에도 그대로 반영된다(빈 자리는 다시 쓰기 버튼이 된다).
+  await expect(page.getByTestId('seat-board').getByRole('button', { name: '3번 자리 다시 쓰기' })).toBeVisible();
+
+  await desk(2).click();
+  await page.getByTestId('desk-selection-actions').getByRole('button', { name: '다시 쓰기' }).click();
+  await expect.poll(() => storedDisabled(page)).toEqual([4]);
+});
+
+test('책상을 지우면 빈 자리 번호가 함께 당겨진다', async ({ page }) => {
+  await openEditor(page);
+  const desk = (i: number) => page.locator('[data-desk]').nth(i);
+  await desk(5).click();
+  await page
+    .getByTestId('desk-selection-actions')
+    .getByRole('button', { name: '고른 자리 빈 자리로' })
+    .click();
+  await expect.poll(() => storedDisabled(page)).toEqual([5]);
+
+  // 앞쪽 책상 하나를 지우면 6번째 책상은 5번째가 된다.
+  await desk(1).click();
+  await page
+    .getByTestId('desk-selection-actions')
+    .getByRole('button', { name: /고른 책상 삭제/ })
+    .click();
+  await expectDeskCount(page, 20);
+  await expect.poll(() => storedDisabled(page)).toEqual([4]);
+  await expect(desk(4)).toContainText('빈 자리');
+});
+
+test('배치도에서 자리를 누르면 그 자리 옆에 메뉴가 뜬다', async ({ page }) => {
+  await openEditor(page);
+  const seat = page.getByTestId('seat-board').locator('[data-seat="16"]');
+  await seat.scrollIntoViewIfNeeded();
+  await seat.click();
+
+  const pop = page.getByTestId('seat-popover');
+  await expect(pop).toBeVisible();
+  const seatBox = (await seat.boundingBox())!;
+  const popBox = (await pop.boundingBox())!;
+  // 카드 맨 위가 아니라 누른 자리 근처에 뜬다.
+  expect(Math.abs(popBox.y - seatBox.y)).toBeLessThan(220);
+  expect(Math.abs(popBox.x + popBox.width / 2 - (seatBox.x + seatBox.width / 2))).toBeLessThan(320);
+
+  await pop.getByRole('button', { name: /빈 자리로/ }).click();
+  await expect.poll(() => storedDisabled(page)).toEqual([16]);
+});

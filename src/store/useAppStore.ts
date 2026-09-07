@@ -3,7 +3,7 @@
 // Undo/Redo는 zundo(temporal)로, 좌석·배치 관련 필드만 되돌린다.
 import { create, useStore, type StateCreator, type StoreApi, type UseBoundStore } from 'zustand';
 import { temporal, type TemporalState } from 'zundo';
-import type { Assignment, ClassData, Gender, LayoutSettings } from '@/core/model/types';
+import type { Assignment, ClassData, Desk, Gender, LayoutSettings } from '@/core/model/types';
 import { LIMITS } from '@/core/model/defaults';
 import { sanitizeStudents } from '@/core/model/schema';
 import { loadClassData } from '@/core/model/migrate';
@@ -43,6 +43,17 @@ export interface AppState {
   deleteSeat(seatIndex: number): void;
   restoreSeat(seatIndex: number): void;
   restoreAllSeats(): void;
+  /** 여러 자리를 한꺼번에 빈 자리로 둔다(자유배치 편집기). */
+  disableSeats(seatIndexes: number[]): void;
+  /** 빈 자리로 둔 여러 자리를 다시 쓴다. */
+  restoreSeats(seatIndexes: number[]): void;
+  /** 책상 이동·추가처럼 좌석 번호가 그대로인 변경. */
+  setCustomDesks(desks: Desk[]): void;
+  /**
+   * 책상을 지운다. 좌석 번호는 지운 자리 뒤가 한 칸씩 당겨지므로
+   * 빈 자리·고정 자리 번호도 같이 옮긴다(안 그러면 엉뚱한 자리에 붙는다).
+   */
+  removeCustomDesks(indexes: number[]): void;
   setGridSize(columns: number, rows: number): { clearedDisabled: number };
   recordAssignment(mapping: Assignment, historyFallback: boolean): void;
   exportJSON(): string;
@@ -319,6 +330,70 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
         const d = get().data;
         if (d.layoutSettings.disabledSeats.length === 0) return;
         set({ data: { ...d, layoutSettings: { ...d.layoutSettings, disabledSeats: [] } } });
+      },
+
+      disableSeats: (seatIndexes) => {
+        const d = get().data;
+        const count = rawSeatCount(d);
+        const add = seatIndexes.filter(
+          (i) => Number.isSafeInteger(i) && i >= 0 && i < count && !d.layoutSettings.disabledSeats.includes(i),
+        );
+        if (add.length === 0) return;
+        const disabled = [...d.layoutSettings.disabledSeats, ...add].sort((a, b) => a - b);
+        const gone = new Set(add);
+        set({
+          data: {
+            ...d,
+            layoutSettings: { ...d.layoutSettings, disabledSeats: disabled },
+            // 빈 자리로 둔 좌석에 걸린 고정은 해제한다(deleteSeat과 같은 규칙).
+            fixedSeats: d.fixedSeats.filter((f) => !gone.has(f.seatIndex)),
+          },
+        });
+      },
+
+      restoreSeats: (seatIndexes) => {
+        const d = get().data;
+        const back = new Set(seatIndexes);
+        const next = d.layoutSettings.disabledSeats.filter((x) => !back.has(x));
+        if (next.length === d.layoutSettings.disabledSeats.length) return;
+        set({ data: { ...d, layoutSettings: { ...d.layoutSettings, disabledSeats: next } } });
+      },
+
+      setCustomDesks: (desks) => {
+        const d = get().data;
+        set({ data: { ...d, layoutSettings: { ...d.layoutSettings, customDesks: desks } } });
+      },
+
+      removeCustomDesks: (indexes) => {
+        const d = get().data;
+        const gone = new Set(indexes.filter((i) => Number.isSafeInteger(i) && i >= 0));
+        if (gone.size === 0) return;
+        const desks = d.layoutSettings.customDesks;
+        // 남는 책상의 옛 번호 → 새 번호
+        const moved = new Map<number, number>();
+        let next = 0;
+        desks.forEach((_, i) => {
+          if (!gone.has(i)) moved.set(i, next++);
+        });
+        set({
+          data: {
+            ...d,
+            layoutSettings: {
+              ...d.layoutSettings,
+              customDesks: desks.filter((_, i) => !gone.has(i)),
+              disabledSeats: d.layoutSettings.disabledSeats
+                .map((i) => moved.get(i))
+                .filter((i): i is number => i !== undefined)
+                .sort((a, b) => a - b),
+            },
+            fixedSeats: d.fixedSeats
+              .map((f) => {
+                const to = moved.get(f.seatIndex);
+                return to === undefined ? null : { ...f, seatIndex: to };
+              })
+              .filter((f): f is (typeof d.fixedSeats)[number] => f !== null),
+          },
+        });
       },
 
       // R84: 접지 않고 저장하면 다음 로드 때 스키마 범위로 조용히 바뀌어

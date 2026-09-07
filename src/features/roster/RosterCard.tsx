@@ -97,7 +97,7 @@ export function RosterCard() {
   };
 
   return (
-    <PaperCard title="명단" tilt="l">
+    <PaperCard title="명단">
       <div data-card="roster">
         <div className="flex flex-wrap items-center gap-2 font-body text-sm text-ink">
           <span>
