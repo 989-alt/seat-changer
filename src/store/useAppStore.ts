@@ -56,6 +56,12 @@ export interface AppState {
   removeCustomDesks(indexes: number[]): void;
   setGridSize(columns: number, rows: number): { clearedDisabled: number };
   recordAssignment(mapping: Assignment, historyFallback: boolean): void;
+  /**
+   * 발표 화면의 자리 교환 결과를 저장한다. 지난 배치(lastAssignment)의 좌석만 바꾸고
+   * 이력(assignmentHistory)은 늘리지 않는다. 모둠 배치면 이번 뽑기가 쌓은 모둠 기록
+   * (timestamp가 같은 마지막 항목)을 바뀐 구성으로 고친다. 지난 배치가 없으면 무시한다.
+   */
+  replaceLastAssignment(mapping: Assignment): void;
   exportJSON(): string;
   importJSON(json: string): { ok: boolean; error?: string };
   clearNotice(): void;
@@ -166,6 +172,23 @@ const todayFrom = (timestamp: number): string => new Date(timestamp).toISOString
 /** R84: 행·열은 저장 전에 스키마가 받는 범위(1~12 정수)로 접는다. */
 const clampGrid = (n: number): number =>
   Math.max(LIMITS.MIN_GRID, Math.min(LIMITS.MAX_GRID, Math.trunc(n)));
+
+/** 모둠별 학생 이름. 좌석 번호를 모둠 크기대로 잘라 묶는다(아무도 없는 모둠은 뺀다). */
+function groupsOf(mapping: Assignment, d: ClassData): string[][] {
+  const sizes = groupLayout.getGroupSizes(d.layoutSettings);
+  const groups: string[][] = [];
+  let cursor = 0;
+  for (const sz of sizes) {
+    const members: string[] = [];
+    for (let seat = cursor; seat < cursor + sz; seat++) {
+      const name = mapping[seat];
+      if (name) members.push(name);
+    }
+    if (members.length > 0) groups.push(members);
+    cursor += sz;
+  }
+  return groups;
+}
 
 export function createAppStore(adapter: StorageAdapter): UseBoundStore<
   StoreApi<AppState> & { temporal: StoreApi<TemporalState<UndoSnapshot>> }
@@ -434,19 +457,7 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
         }
 
         if (d.layoutType === 'group') {
-          const sizes = groupLayout.getGroupSizes(d.layoutSettings);
-          const groups: string[][] = [];
-          let cursor = 0;
-          for (const sz of sizes) {
-            const members: string[] = [];
-            for (let seat = cursor; seat < cursor + sz; seat++) {
-              const name = mapping[seat];
-              if (name) members.push(name);
-            }
-            if (members.length > 0) groups.push(members);
-            cursor += sz;
-          }
-          const gh = [...d.groupHistory, { groups, timestamp: now, date: todayFrom(now) }];
+          const gh = [...d.groupHistory, { groups: groupsOf(mapping, d), timestamp: now, date: todayFrom(now) }];
           while (gh.length > LIMITS.MAX_HISTORY) gh.shift();
           next.groupHistory = gh;
         }
@@ -455,6 +466,21 @@ export function createAppStore(adapter: StorageAdapter): UseBoundStore<
         // (저장 실패가 더 급한 소식이다).
         if (historyFallback) set({ loadNotice: NOTICE.HISTORY_FALLBACK });
         // 배치 결과는 Undo 대상이 아니다.
+        setUntracked(next);
+      },
+
+      replaceLastAssignment: (mapping) => {
+        const d = get().data;
+        const prev = d.lastAssignment;
+        if (!prev) return;
+        const next: ClassData = { ...d, lastAssignment: { ...prev, mapping } };
+        const lastGroup = d.groupHistory[d.groupHistory.length - 1];
+        // recordAssignment는 lastAssignment와 모둠 기록에 같은 timestamp를 쓴다.
+        // 같을 때만 "이번 뽑기의 모둠 기록"이므로 그때만 고친다.
+        if (d.layoutType === 'group' && lastGroup && lastGroup.timestamp === prev.timestamp) {
+          next.groupHistory = [...d.groupHistory.slice(0, -1), { ...lastGroup, groups: groupsOf(mapping, d) }];
+        }
+        // 배치 결과는 Undo 대상이 아니다(recordAssignment와 같다).
         setUntracked(next);
       },
 

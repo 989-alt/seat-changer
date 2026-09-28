@@ -492,6 +492,60 @@ describe('recordAssignment', () => {
   });
 });
 
+describe('replaceLastAssignment', () => {
+  it('지난 배치의 좌석만 바꾸고 이력은 늘리지 않는다', () => {
+    const { s } = boot();
+    s().recordAssignment({ 0: 'A', 1: 'B' }, false);
+    s().recordAssignment({ 0: 'B', 1: 'A' }, false);
+    const before = s().data;
+    s().replaceLastAssignment({ 0: 'A', 1: 'B' });
+    expect(s().data.lastAssignment?.mapping).toEqual({ 0: 'A', 1: 'B' });
+    expect(s().data.lastAssignment?.timestamp).toBe(before.lastAssignment?.timestamp);
+    expect(s().data.assignmentHistory).toEqual(before.assignmentHistory);
+  });
+
+  it('지난 배치가 없으면 아무것도 하지 않는다', () => {
+    const { s } = boot();
+    const before = s().data;
+    s().replaceLastAssignment({ 0: 'A' });
+    expect(s().data).toBe(before);
+  });
+
+  it('모둠 배치면 이번 뽑기가 쌓은 모둠 기록만 바뀐 구성으로 고친다', () => {
+    const { s } = boot();
+    s().update({ layoutType: 'group', students: ['A', 'B', 'C', 'D'], classSize: 4 });
+    s().updateLayoutSettings({ groupSizes: [2, 2] });
+    s().recordAssignment({ 0: 'A', 1: 'B', 2: 'C', 3: 'D' }, false);
+    s().replaceLastAssignment({ 0: 'A', 1: 'C', 2: 'B', 3: 'D' });
+    expect(s().data.groupHistory).toHaveLength(1);
+    expect(s().data.groupHistory[0]?.groups).toEqual([
+      ['A', 'C'],
+      ['B', 'D'],
+    ]);
+  });
+
+  it('모둠 기록의 마지막 항목이 이번 뽑기 것이 아니면 모둠 기록을 건드리지 않는다', () => {
+    const { s } = boot();
+    s().update({ layoutType: 'group', students: ['A', 'B'], classSize: 2 });
+    s().updateLayoutSettings({ groupSizes: [2] });
+    s().update({
+      lastAssignment: { mapping: { 0: 'A', 1: 'B' }, timestamp: 1 },
+      groupHistory: [{ groups: [['A', 'B']], timestamp: 999 }],
+    });
+    s().replaceLastAssignment({ 0: 'B', 1: 'A' });
+    expect(s().data.groupHistory).toEqual([{ groups: [['A', 'B']], timestamp: 999 }]);
+    expect(s().data.lastAssignment?.mapping).toEqual({ 0: 'B', 1: 'A' });
+  });
+
+  it('바꾼 배치가 저장소에 저장된다', () => {
+    const { adapter, s } = boot();
+    s().recordAssignment({ 0: 'A', 1: 'B' }, false);
+    s().replaceLastAssignment({ 0: 'B', 1: 'A' });
+    const saved = JSON.parse(adapter.get(dataKey('1반'))!);
+    expect(saved.lastAssignment.mapping).toEqual({ 0: 'B', 1: 'A' });
+  });
+});
+
 describe('JSON', () => {
   it('내보내기·가져오기', () => {
     const { s } = boot();
