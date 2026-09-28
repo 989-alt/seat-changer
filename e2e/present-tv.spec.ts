@@ -191,6 +191,7 @@ test('1920x1080에서는 선생님 시선·전체 화면을 켜도 조작 막대
   await seed(page, v1);
   await page.goto('/present');
   await expect(page.locator('[data-seat-name]').first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
   const bar = page.locator('[data-present="controls"]');
   // 한 줄이면 약 59px, 두 줄이면 약 103px
   const oneRow = async () => (await bar.boundingBox())!.height <= 70;
