@@ -70,6 +70,21 @@
   .present-confetti {
     display: none !important;
   }
+  /* 토스트도 fixed라 모든 장에 찍힌다(실측으로 찾은 결함). */
+  [data-cork='toast'] {
+    display: none !important;
+  }
+  /* 제목 줄 높이 = printFit.ts의 PRINT_TITLE_PX(32 + 8 = 40px). 두 값을 함께 바꾼다. */
+  .present-print-title {
+    height: 32px;
+    line-height: 32px;
+    margin: 0 0 8px;
+  }
+  /* 배치도를 가운데에 둔다. 배율(zoom)과 용지 방향(@page)은 PresentPage가 fitPrintPage로 정한다. */
+  .present-print-board {
+    width: fit-content;
+    margin: 0 auto;
+  }
   /* 배치도 한 장이 페이지 경계에서 잘리지 않게 하고, 시점마다 새 장에서 시작한다. */
   .present-print-page {
     break-inside: avoid;
@@ -78,8 +93,5 @@
   .present-print-page + .present-print-page {
     break-before: page;
     page-break-before: always;
-  }
-  @page {
-    margin: 12mm;
   }
 }

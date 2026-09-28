@@ -1,12 +1,9 @@
-// 발표 화면(스펙 6절). 전체화면으로 띄워 학생들이 함께 보는 화면이다.
-// 뽑기 연출의 상태는 useDrawSequence가 들고 있고, 이 파일은 화면 구성과
-// 저장(스토어)·이미지/인쇄·시점 전환만 맡는다.
+// 발표 화면(스펙 6절, 개선 스펙 2026-09-28). 전체화면으로 띄워 학생들이 함께 보는 화면이다.
+// 뽑기 연출의 상태는 useDrawSequence, 조작 막대는 PresentControls, 이미지 그리기는
+// boardImage가 맡는다. 이 파일은 화면 구성과 저장(스토어)·인쇄·시점 전환을 잇는다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { ArrowLeft, Eye, ImageDown, Play, Printer, RotateCcw, UserRound, Volume2, VolumeX } from 'lucide-react';
-import { ChalkBoard } from '@/components/cork/ChalkBoard';
 import { ToastHost } from '@/components/Toast';
-import { WoodButton } from '@/components/cork/WoodButton';
 import { SeatBoard } from '@/features/layout/SeatBoard';
 import { assignRoles } from '@/core/groups/roles';
 import { groupLayout } from '@/core/layouts/group';
@@ -15,6 +12,10 @@ import { useAppStore } from '@/store/useAppStore';
 import { useToasts } from '@/store/useToasts';
 import { useGroupSettings } from '@/features/groups/useGroupSettings';
 import { Confetti } from '@/features/present/Confetti';
+import { PresentControls, type PresentStatus } from '@/features/present/PresentControls';
+import { IMAGE_EXT, renderBoardToCanvas } from '@/features/present/boardImage';
+import { loadableLastAssignment } from '@/features/present/lastAssignment';
+import { fitPrintPage, PRINT_MARGIN_MM, type PrintFit } from '@/features/present/printFit';
 import { isMuted, playSound, setMuted, type SoundKind } from '@/features/present/sound';
 import { useDrawSequence } from '@/features/present/useDrawSequence';
 import '@/features/present/present.css';
@@ -64,117 +65,14 @@ function groupsFromMapping(mapping: Assignment, data: ClassData): string[][] {
   return groups;
 }
 
-// --- 이미지 저장 (legacy/js/screens/student-screen.js:1074-1155 renderToCanvas 이식) ---
-// 여백·제목 높이·2배 스케일·둥근 모서리·글꼴 크기·제목 문구·파일명 규칙은 레거시 그대로다.
-// 색만 v1 팔레트(#F8FAFC 등)에서 v2 코르크 팔레트로 바꿨다 — v2에는 그 색이 없다.
-const PADDING = 40;
-const TITLE_HEIGHT = 50;
-// 저장 파일 확장자. G4 스캐너(scripts/scan-emoji.mjs)는 소스에 이미지 확장자 문자열이
-// 그대로 있으면 이미지 파일 참조로 보고 막는다. 여기서는 파일명을 만드는 용도라
-// 확장자만 상수로 떼어 문자열에서 점과 붙지 않게 한다.
-const IMAGE_EXT = 'png';
-const IMG = {
-  bg: '#FFFBF0',
-  title: '#2A211B',
-  board: '#26443C',
-  boardText: '#F3F0E6',
-  podium: '#7B5130',
-  podiumText: '#FFFBF0',
-  seatFixed: '#FDE6B8',
-  seatAssigned: '#FFFBF0',
-  seatEmpty: '#E8F1D9',
-  seatLine: '#7B5130',
-  seatText: '#2A211B',
-} as const;
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-function renderBoardToCanvas(root: HTMLElement, teacherView: boolean): HTMLCanvasElement | null {
-  const seats = Array.from(root.querySelectorAll<HTMLElement>('[data-cork="note-seat"]'));
-  if (seats.length === 0) return null;
-  const rootRect = root.getBoundingClientRect();
-  const width = Math.max(rootRect.width + PADDING * 2, 600);
-  const height = rootRect.height + PADDING * 2 + TITLE_HEIGHT;
-  const canvas = document.createElement('canvas');
-  canvas.width = width * 2;
-  canvas.height = height * 2;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  ctx.scale(2, 2);
-
-  ctx.fillStyle = IMG.bg;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.fillStyle = IMG.title;
-  ctx.font = 'bold 20px "Noto Sans KR", sans-serif';
-  ctx.textAlign = 'center';
-  const dateStr = new Date().toLocaleDateString('ko-KR');
-  const viewLabel = teacherView ? ' (선생님 시선)' : '';
-  ctx.fillText(`자리 배치${viewLabel} - ${dateStr}`, width / 2, 30);
-
-  const board = root.querySelector<HTMLElement>('[data-cork="chalkboard"]');
-  if (board) {
-    const rect = board.getBoundingClientRect();
-    const bx = rect.left - rootRect.left + PADDING;
-    const by = rect.top - rootRect.top + PADDING + TITLE_HEIGHT;
-    const podium = board.dataset.kind === 'podium';
-    ctx.fillStyle = podium ? IMG.podium : IMG.board;
-    roundRect(ctx, bx, by, rect.width, rect.height, 4);
-    ctx.fill();
-    ctx.fillStyle = podium ? IMG.podiumText : IMG.boardText;
-    ctx.font = '14px "Noto Sans KR", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(board.textContent ?? '', bx + rect.width / 2, by + rect.height / 2 + 5);
-  }
-
-  for (const seat of seats) {
-    const rect = seat.getBoundingClientRect();
-    const x = rect.left - rootRect.left + PADDING;
-    const y = rect.top - rootRect.top + PADDING + TITLE_HEIGHT;
-    const state = seat.dataset.state;
-    ctx.fillStyle = state === 'fixed' ? IMG.seatFixed : state === 'assigned' ? IMG.seatAssigned : IMG.seatEmpty;
-    ctx.strokeStyle = IMG.seatLine;
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, x, y, rect.width, rect.height, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = IMG.seatText;
-    ctx.font = '10px "Noto Sans KR", sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(String(Number(seat.dataset.seat ?? '0') + 1), x + 4, y + 12);
-
-    // NoteSeat의 마지막 span이 이름(또는 빈 자리 문구)이다.
-    const name = seat.dataset.state === 'assigned' || seat.dataset.state === 'fixed'
-      ? (seat.querySelector<HTMLElement>('span:last-child')?.textContent ?? '')
-      : '';
-    if (name) {
-      ctx.fillStyle = IMG.seatText;
-      ctx.font = 'bold 13px "Noto Sans KR", sans-serif';
-      ctx.textAlign = 'center';
-      // 이름이 긴 학생이 있어도 이름표 밖으로 나가지 않게 폭을 제한한다.
-      ctx.fillText(name, x + rect.width / 2, y + rect.height / 2 + 5, Math.max(rect.width - 8, 20));
-    }
-  }
-  return canvas;
-}
+/** 지난 배치를 불러오지 못했을 때의 안내(개선 스펙 3-4). */
+const STALE_NOTICE = '명단이나 배치가 바뀌어 지난 배치는 불러오지 않았습니다.';
 
 export function PresentPage() {
   const data = useAppStore((s) => s.data);
   const activeClass = useAppStore((s) => s.activeClass);
   const recordAssignment = useAppStore((s) => s.recordAssignment);
+  const replaceLastAssignment = useAppStore((s) => s.replaceLastAssignment);
   const update = useAppStore((s) => s.update);
   const pushToast = useToasts((s) => s.push);
 
@@ -186,6 +84,7 @@ export function PresentPage() {
   const [muted, setMutedState] = useState(() => isMuted());
   const [swapFirst, setSwapFirst] = useState<number | null>(null);
   const [printing, setPrinting] = useState(false);
+  const [printFit, setPrintFit] = useState<PrintFit>({ orientation: 'landscape', zoom: 1 });
   const [rolesByStudent, setRolesByStudent] = useState<Record<string, string>>({});
   const boardRef = useRef<HTMLDivElement>(null);
   const boardAreaRef = useRef<HTMLDivElement>(null);
@@ -193,6 +92,17 @@ export function PresentPage() {
   // 교실 TV(1920x1080)에서 뒷자리 학생도 읽을 수 있도록 배치도를 남는 공간만큼 키운다.
   // SeatBoard의 lg 크기가 기준값이고, 여기서는 그 결과를 통째로 확대·축소만 한다.
   const [boardScale, setBoardScale] = useState(1);
+
+  // 처음 열 때 한 번만 지난 배치를 검사한다(개선 스펙 3-4). 교환 저장으로 data가
+  // 바뀌어도 다시 검사하지 않는다(useDrawSequence도 initialMapping을 첫 렌더에만 읽는다).
+  const [initial] = useState(() => loadableLastAssignment(data));
+  const staleNotifiedRef = useRef(false);
+  useEffect(() => {
+    // StrictMode 개발 모드에서 effect가 두 번 돌아도 안내는 한 번만 띄운다.
+    if (!initial.stale || staleNotifiedRef.current) return;
+    staleNotifiedRef.current = true;
+    pushToast(STALE_NOTICE);
+  }, [initial.stale, pushToast]);
 
   // 배치도를 남는 공간에 맞춰 확대한다. offsetWidth/offsetHeight는 transform 이전의
   // 레이아웃 크기라 확대해도 값이 변하지 않으므로 되먹임 루프가 생기지 않는다.
@@ -224,6 +134,8 @@ export function PresentPage() {
   const seq = useDrawSequence({
     data,
     onAssigned: recordAssignment,
+    onSwapped: replaceLastAssignment,
+    initialMapping: initial.mapping,
     reducedMotion,
     playSound: play,
   });
@@ -236,6 +148,7 @@ export function PresentPage() {
 
   // 모둠 역할은 뽑기 한 번에 한 번만 배정한다. 자리 교환으로 매핑이 바뀌어도
   // 역할은 학생을 따라가므로 다시 배정하지 않는다(역할이 갑자기 뒤바뀌지 않게).
+  // 다시 연 지난 배치(drawId 0)에는 역할을 표시하지 않는다(개선 스펙 3-4 한계).
   useEffect(() => {
     if (seq.drawId === rolesDrawRef.current) return;
     rolesDrawRef.current = seq.drawId;
@@ -274,8 +187,8 @@ export function PresentPage() {
 
   const isGroup = data.layoutType === 'group';
   const hasResult = seq.mapping !== null;
-  // 카운트다운·셔플·줄 공개 중에는 조작 막대를 감춘다. 한 명씩 뽑기의 짧은
-  // 공개 사이에는 막대를 남겨 두고 버튼만 잠근다(막대가 깜빡이지 않게).
+  // 카운트다운·셔플·줄 공개 중에는 조작 막대를 가린다(자리는 지킨다). 한 명씩 뽑기의
+  // 짧은 공개 사이에는 막대를 그대로 두고 버튼만 잠근다(막대가 깜빡이지 않게).
   const drawing = seq.phase === 'countdown' || seq.phase === 'shuffling' || seq.phase === 'revealing';
   const canSwap = hasResult && seq.revealedSeats === 'all' && !seq.running;
 
@@ -312,9 +225,8 @@ export function PresentPage() {
   const saveImage = useCallback(() => {
     const root = boardRef.current;
     if (!root) return;
-    // renderBoardToCanvas는 getBoundingClientRect로 좌표를 읽고 글자 크기는 상수로 그린다.
-    // 확대된 상태 그대로 읽으면 상자만 커지고 글자는 그대로라 비율이 깨지므로,
-    // 캡처하는 동안만 확대를 끄고 원래 크기의 좌표를 읽는다.
+    // renderBoardToCanvas는 getBoundingClientRect로 좌표를 읽는다. 확대된 상태 그대로 읽으면
+    // 상자와 글자 비례가 흔들리므로, 캡처하는 동안만 확대를 끄고 원래 크기의 좌표를 읽는다.
     const restore = root.style.transform;
     root.style.transform = 'translate(-50%, -50%)';
     const canvas = renderBoardToCanvas(root, teacherView);
@@ -339,16 +251,27 @@ export function PresentPage() {
     }, 'image/png');
   }, [pushToast, teacherView]);
 
+  // 인쇄 용지 방향·배율(개선 스펙 3-3). 화면 배치도의 transform 이전 크기
+  // (offsetWidth/offsetHeight)가 인쇄용 배치도와 같은 lg 크기다.
+  const measurePrintFit = useCallback(
+    (): PrintFit => fitPrintPage(boardRef.current?.offsetWidth ?? 0, boardRef.current?.offsetHeight ?? 0),
+    [],
+  );
+
   // 인쇄: 학생 시선·선생님 시선 양면 보기를 만든 뒤 인쇄한다
   // (legacy/js/screens/student-screen.js:788-835와 같은 구성).
   //
   // 양면 보기는 인쇄가 시작되는 순간에만 DOM에 올린다. 화면에는 배치도가 하나뿐이어야
   // 좌석 클릭·이미지 저장·E2E 선택자가 흔들리지 않기 때문이다. 브라우저는 beforeprint를
-  // 처리한 뒤에 인쇄용 레이아웃을 잡으므로, 그 안에서 flushSync로 DOM을 동기 반영하면
-  // 인쇄 버튼뿐 아니라 사용자가 직접 Ctrl+P를 눌러도 같은 결과가 나온다.
+  // 처리한 뒤에 인쇄용 레이아웃을 잡으므로, 그 안에서 flushSync로 DOM(용지 방향 규칙 포함)을
+  // 동기 반영하면 인쇄 버튼뿐 아니라 사용자가 직접 Ctrl+P를 눌러도 같은 결과가 나온다.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const before = () => flushSync(() => setPrinting(true));
+    const before = () =>
+      flushSync(() => {
+        setPrintFit(measurePrintFit());
+        setPrinting(true);
+      });
     const after = () => setPrinting(false);
     window.addEventListener('beforeprint', before);
     window.addEventListener('afterprint', after);
@@ -356,18 +279,21 @@ export function PresentPage() {
       window.removeEventListener('beforeprint', before);
       window.removeEventListener('afterprint', after);
     };
-  }, []);
+  }, [measurePrintFit]);
 
   const handlePrint = useCallback(() => {
     // beforeprint를 지원하지 않는 브라우저를 위해 버튼 경로에서도 직접 올려 둔다.
-    flushSync(() => setPrinting(true));
+    flushSync(() => {
+      setPrintFit(measurePrintFit());
+      setPrinting(true);
+    });
     try {
       window.print();
     } catch {
       // 인쇄를 막는 환경(테스트 등)에서는 조용히 넘어간다.
     }
     setPrinting(false);
-  }, []);
+  }, [measurePrintFit]);
 
   const highlightSeats = useMemo(() => {
     const out: number[] = [];
@@ -376,42 +302,49 @@ export function PresentPage() {
     return out;
   }, [seq.spotlightSeat, swapFirst]);
 
+  // 조작 막대 상태 칸(고정 높이). 우선순위: 한 명씩 뽑기 이름 > 교환 중 안내 > 기본 안내.
+  const status: PresentStatus | null = seq.lotteryName
+    ? { text: seq.lotteryName, tone: 'lottery' }
+    : swapFirst !== null
+      ? { text: `${swapFirst + 1}번 자리를 골랐습니다. 바꿀 자리를 누르세요 (같은 자리를 다시 누르면 취소)`, tone: 'hint' }
+      : canSwap
+        ? { text: '두 자리를 차례로 누르면 서로 바뀝니다', tone: 'hint' }
+        : null;
+
   const boardProps = {
     data,
     mapping: seq.mapping ?? undefined,
     size: 'lg' as const,
     perspective: data.viewPerspective,
+    // 학생이 보는 화면·인쇄물에는 고정 자리를 드러내지 않는다(개선 스펙 3-5).
+    showFixed: false,
     groupNames: isGroup ? groupNames : undefined,
     roles: isGroup ? seatRoles : undefined,
   };
 
   return (
-    <main data-page="present" className="flex min-h-screen flex-col texture-cork p-4 md:p-8">
-      <div className="present-screen-only mx-auto flex w-full max-w-[1800px] flex-1 flex-col gap-6">
-        <header className="flex items-center gap-4">
-          <ChalkBoard label={`${activeClass} 자리 배치`} className="flex-1" />
-        </header>
-
+    <main data-page="present" className="flex min-h-screen flex-col texture-cork p-3 md:p-4">
+      <div className="present-screen-only mx-auto flex w-full max-w-[1800px] flex-1 flex-col gap-3">
         {/*
           transform: scale은 그리기만 바꾸고 레이아웃 크기는 그대로 두기 때문에,
           배치도를 일반 흐름에 두면 작은 화면에서 원래 크기만큼 자리를 차지해
           세로 스크롤이 생긴다. 절대 위치로 띄워 남는 공간에만 그린다.
         */}
         <div ref={boardAreaRef} className="relative min-h-0 flex-1 overflow-hidden">
-        <div
-          ref={boardRef}
-          data-present="board"
-          style={{ transform: `translate(-50%, -50%) scale(${boardScale})` }}
-          className={`absolute left-1/2 top-1/2 origin-center ${seq.spotlightSeat !== null ? 'present-spotlight' : ''}`}
-        >
-          <SeatBoard
-            {...boardProps}
-            revealedSeats={seq.phase === 'idle' || seq.phase === 'failed' ? 'all' : seq.revealedSeats}
-            flipping={seq.phase === 'shuffling'}
-            highlightSeats={highlightSeats}
-            onSeatClick={canSwap ? handleSeatClick : undefined}
-          />
-        </div>
+          <div
+            ref={boardRef}
+            data-present="board"
+            style={{ transform: `translate(-50%, -50%) scale(${boardScale})` }}
+            className={`absolute left-1/2 top-1/2 w-max origin-center ${seq.spotlightSeat !== null ? 'present-spotlight' : ''}`}
+          >
+            <SeatBoard
+              {...boardProps}
+              revealedSeats={seq.phase === 'idle' || seq.phase === 'failed' ? 'all' : seq.revealedSeats}
+              flipping={seq.phase === 'shuffling'}
+              highlightSeats={highlightSeats}
+              onSeatClick={canSwap ? handleSeatClick : undefined}
+            />
+          </div>
         </div>
 
         {seq.failure && (
@@ -440,114 +373,24 @@ export function PresentPage() {
           </section>
         )}
 
-        {swapFirst !== null && (
-          <p data-present="swap-hint" className="text-center font-body text-[18px] font-bold text-ink">
-            {swapFirst + 1}번 자리를 골랐습니다. 바꿀 자리를 하나 더 누르세요.
-          </p>
-        )}
-
-        {seq.lotteryName && (
-          <p data-present="lottery-name" className="text-center font-hand text-[34px] font-bold text-ink">
-            {seq.lotteryName}
-          </p>
-        )}
-
-        {!drawing && (
-          <footer
-            data-present="controls"
-            className="flex flex-wrap items-center justify-center gap-3 rounded-note bg-paper p-4 shadow-card"
-          >
-            <WoodButton
-              size="lg"
-              variant="primary"
-              disabled={seq.running}
-              onClick={() => void seq.start()}
-              icon={
-                hasResult ? (
-                  <RotateCcw size={22} aria-hidden="true" className="pointer-events-none" />
-                ) : (
-                  <Play size={22} aria-hidden="true" className="pointer-events-none" />
-                )
-              }
-            >
-              {hasResult ? '다시 뽑기' : '자리 뽑기'}
-            </WoodButton>
-
-            {seq.phase === 'lottery' ? (
-              <>
-                <WoodButton
-                  size="lg"
-                  variant="primary"
-                  disabled={seq.running}
-                  onClick={() => void seq.revealOne()}
-                >
-                  다음 학생 공개
-                </WoodButton>
-                <WoodButton variant="secondary" disabled={seq.running} onClick={seq.revealAll}>
-                  모두 공개
-                </WoodButton>
-              </>
-            ) : (
-              <WoodButton
-                variant="secondary"
-                disabled={seq.running}
-                onClick={() => void seq.startLottery()}
-                icon={<UserRound size={18} aria-hidden="true" className="pointer-events-none" />}
-              >
-                한 명씩 뽑기
-              </WoodButton>
-            )}
-
-            <WoodButton
-              variant="secondary"
-              onClick={togglePerspective}
-              aria-label={`${teacherView ? '선생님 시선' : '학생 시선'} (누르면 시점이 바뀝니다)`}
-              icon={<Eye size={18} aria-hidden="true" className="pointer-events-none" />}
-            >
-              {teacherView ? '선생님 시선' : '학생 시선'}
-            </WoodButton>
-
-            <WoodButton
-              variant="secondary"
-              onClick={toggleSound}
-              icon={
-                muted ? (
-                  <VolumeX size={18} aria-hidden="true" className="pointer-events-none" />
-                ) : (
-                  <Volume2 size={18} aria-hidden="true" className="pointer-events-none" />
-                )
-              }
-            >
-              {muted ? '소리 켜기' : '소리 끄기'}
-            </WoodButton>
-
-            <WoodButton
-              variant="secondary"
-              onClick={saveImage}
-              disabled={!hasResult || seq.running}
-              icon={<ImageDown size={18} aria-hidden="true" className="pointer-events-none" />}
-            >
-              이미지 저장
-            </WoodButton>
-
-            <WoodButton
-              variant="secondary"
-              onClick={handlePrint}
-              disabled={!hasResult || seq.running}
-              icon={<Printer size={18} aria-hidden="true" className="pointer-events-none" />}
-            >
-              인쇄
-            </WoodButton>
-
-            <a
-              href="/"
-              className="inline-flex items-center gap-2 rounded-[6px] border-2 border-cork-dark bg-paper-2 px-4 py-2 font-hand text-[15px] font-bold text-ink shadow-note"
-            >
-              <ArrowLeft size={18} aria-hidden="true" className="pointer-events-none" />
-              교사 화면으로
-            </a>
-          </footer>
-        )}
+        <PresentControls
+          classLabel={activeClass}
+          status={status}
+          hidden={drawing}
+          hasResult={hasResult}
+          running={seq.running}
+          lottery={seq.phase === 'lottery'}
+          teacherView={teacherView}
+          muted={muted}
+          onStart={() => void seq.start()}
+          onStartLottery={() => void seq.startLottery()}
+          onRevealOne={() => void seq.revealOne()}
+          onRevealAll={seq.revealAll}
+          onTogglePerspective={togglePerspective}
+          onToggleSound={toggleSound}
+          onSaveImage={saveImage}
+          onPrint={handlePrint}
+        />
       </div>
 
       {seq.countdown !== null && (
@@ -567,14 +410,20 @@ export function PresentPage() {
 
       {printing && hasResult && (
         <div className="present-print-only">
+          {/* 용지 방향은 배치도 모양에 맞춰 고른다(개선 스펙 3-3). 용지 크기는 프린터 설정을 따른다. */}
+          <style>{`@page { size: ${printFit.orientation}; margin: ${PRINT_MARGIN_MM}mm; }`}</style>
           {/* 한 배치도가 페이지 경계에서 잘리지 않도록 시점별로 한 장씩 나눈다. */}
           <section className="present-print-page">
-            <p className="font-body text-[18px] font-bold text-ink">[ 학생 시선 ]</p>
-            <SeatBoard {...boardProps} perspective="student" />
+            <p className="present-print-title font-body text-[18px] font-bold text-ink">[ {activeClass} · 학생 시선 ]</p>
+            <div className="present-print-board" style={{ zoom: printFit.zoom }}>
+              <SeatBoard {...boardProps} perspective="student" />
+            </div>
           </section>
           <section className="present-print-page">
-            <p className="font-body text-[18px] font-bold text-ink">[ 선생님 시선 ]</p>
-            <SeatBoard {...boardProps} perspective="teacher" />
+            <p className="present-print-title font-body text-[18px] font-bold text-ink">[ {activeClass} · 선생님 시선 ]</p>
+            <div className="present-print-board" style={{ zoom: printFit.zoom }}>
+              <SeatBoard {...boardProps} perspective="teacher" />
+            </div>
           </section>
         </div>
       )}

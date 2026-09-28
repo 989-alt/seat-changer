@@ -279,7 +279,7 @@ export function TeacherPage() {
                   ref={boardRef}
                   data-testid="board-scale-wrap"
                   style={{ transform: `translate(-50%, -50%) scale(${scale})` }}
-                  className="absolute left-1/2 top-1/2 origin-center"
+                  className="absolute left-1/2 top-1/2 w-max origin-center"
                 >
                   <SeatBoard
                     data={data}

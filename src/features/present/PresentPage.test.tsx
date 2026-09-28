@@ -17,6 +17,8 @@ function makeData(patch: Partial<ClassData> = {}): ClassData {
   };
 }
 
+const LAST = { mapping: { 0: '가람', 1: '나래' }, timestamp: 1 };
+
 /** prefers-reduced-motion을 켠 상태로 고정한다. */
 function mockReducedMotion(matches: boolean): void {
   Object.defineProperty(window, 'matchMedia', {
@@ -41,9 +43,13 @@ function seatAt(index: number): HTMLElement {
   return el;
 }
 
-/** 좌석에 적힌 이름(좌석 번호를 뺀 마지막 span) */
+/** 좌석에 적힌 이름(이름 글자에만 붙는 data-seat-name) */
 function nameAt(index: number): string {
-  return seatAt(index).querySelector('span:last-child')?.textContent ?? '';
+  return seatAt(index).querySelector('[data-seat-name]')?.textContent ?? '';
+}
+
+function statusText(): string {
+  return document.querySelector('[data-present="status"]')?.textContent ?? '';
 }
 
 beforeEach(() => {
@@ -120,16 +126,88 @@ describe('PresentPage', () => {
 
     const boards = screen.getAllByTestId('seat-board');
     expect(boards).toHaveLength(3);
-    expect(boards.map((b) => b.getAttribute('data-perspective'))).toEqual([
-      'student',
-      'student',
-      'teacher',
-    ]);
+    expect(boards.map((b) => b.getAttribute('data-perspective'))).toEqual(['student', 'student', 'teacher']);
 
     act(() => {
       window.dispatchEvent(new Event('afterprint'));
     });
     expect(screen.getAllByTestId('seat-board')).toHaveLength(1);
+  });
+
+  it('지난 배치가 있으면 공개된 상태로 열리고 바로 인쇄·이미지 저장을 쓸 수 있다', () => {
+    useAppStore.setState({ data: makeData({ lastAssignment: LAST }) });
+    render(<PresentPage />);
+
+    expect(nameAt(0)).toBe('가람');
+    expect(nameAt(1)).toBe('나래');
+    expect(screen.getByRole('button', { name: /다시 뽑기/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /인쇄/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /이미지 저장/ })).toBeEnabled();
+    expect(statusText()).toBe('두 자리를 차례로 누르면 서로 바뀝니다');
+  });
+
+  it('명단이 바뀌어 지난 배치를 쓸 수 없으면 빈 화면으로 열고 알린다', async () => {
+    useAppStore.setState({ data: makeData({ lastAssignment: { mapping: { 0: '가람', 1: '다른학생' }, timestamp: 1 } }) });
+    render(<PresentPage />);
+
+    expect(await screen.findByText('명단이나 배치가 바뀌어 지난 배치는 불러오지 않았습니다.')).toBeInTheDocument();
+    expect(document.querySelector('[data-seat-name]')).toBeNull();
+    expect(screen.getByRole('button', { name: /자리 뽑기/ })).toBeInTheDocument();
+  });
+
+  it('지난 배치에서 자리를 바꾸면 이력을 늘리지 않고 지난 배치만 고친다', async () => {
+    useAppStore.setState({ data: makeData({ lastAssignment: LAST }) });
+    const user = userEvent.setup();
+    render(<PresentPage />);
+
+    await user.click(seatAt(0));
+    expect(statusText()).toBe('1번 자리를 골랐습니다. 바꿀 자리를 누르세요 (같은 자리를 다시 누르면 취소)');
+    await user.click(seatAt(1));
+
+    const saved = useAppStore.getState().data;
+    expect(saved.lastAssignment?.mapping).toEqual({ 0: '나래', 1: '가람' });
+    expect(saved.lastAssignment?.timestamp).toBe(1);
+    expect(saved.assignmentHistory).toHaveLength(0);
+    expect(statusText()).toBe('두 자리를 차례로 누르면 서로 바뀝니다');
+  });
+
+  it('발표 화면은 고정 자리를 드러내지 않는다', () => {
+    useAppStore.setState({
+      data: makeData({ fixedSeats: [{ studentName: '가람', seatIndex: 0 }], lastAssignment: LAST }),
+    });
+    render(<PresentPage />);
+
+    expect(seatAt(0)).toHaveAttribute('data-state', 'assigned');
+    expect(document.querySelector('[data-cork="pushpin"]')).toBeNull();
+  });
+
+  it('제목 칠판 없이 반 이름은 조작 막대에 둔다', () => {
+    render(<PresentPage />);
+    expect(screen.queryByText('테스트반 자리 배치')).toBeNull();
+    expect(document.querySelector('[data-present="class"]')).toHaveTextContent('테스트반');
+  });
+
+  it('인쇄하면 반 이름을 넣은 제목과 용지 방향 규칙을 올린다', () => {
+    useAppStore.setState({ data: makeData({ lastAssignment: LAST }) });
+    render(<PresentPage />);
+
+    act(() => {
+      window.dispatchEvent(new Event('beforeprint'));
+    });
+
+    expect(screen.getByText('[ 테스트반 · 학생 시선 ]')).toBeInTheDocument();
+    expect(screen.getByText('[ 테스트반 · 선생님 시선 ]')).toBeInTheDocument();
+    const css = Array.from(document.querySelectorAll('style'))
+      .map((s) => s.textContent ?? '')
+      .join('\n');
+    // jsdom은 배치도 크기를 0으로 재므로 fitPrintPage의 기본값(가로)이 나온다.
+    expect(css).toMatch(/@page\s*\{\s*size:\s*landscape;\s*margin:\s*10mm;\s*\}/);
+    // 인쇄용 배치도도 고정 자리를 드러내지 않는다.
+    expect(document.querySelector('[data-cork="pushpin"]')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new Event('afterprint'));
+    });
   });
 });
 
