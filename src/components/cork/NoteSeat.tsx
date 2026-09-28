@@ -4,7 +4,32 @@ import { PushPin } from './PushPin';
 export type NoteSeatState = 'empty' | 'assigned' | 'fixed' | 'disabled';
 
 const VARIANT = ['bg-paper tilt-note-a', 'bg-paper-2 tilt-note-b', 'bg-paper-3 tilt-note-c'] as const;
-const SIZE = { sm: 'h-14 text-[14px]', lg: 'h-24 text-[28px]' } as const;
+// lg는 발표·인쇄용 가로형 이름표다(개선 스펙 3-1). 폭은 부모 슬롯(SeatBoard의 200px)이 정한다.
+// 번호를 왼쪽 위 모서리로 빼고(pt-3로 이름을 살짝 내림) 이름 글자를 키운다.
+const SIZE = { sm: 'h-14 text-[14px]', lg: 'h-[100px] px-3 pt-3 text-[26px]' } as const;
+const NUMBER = {
+  sm: 'font-body text-[10px] font-normal text-ink',
+  lg: 'absolute left-2 top-1 font-body text-[14px] font-normal leading-none text-ink',
+} as const;
+const ROLE_TEXT = { sm: 'text-[11px]', lg: 'text-[18px]' } as const;
+
+/**
+ * lg 이름 글자 크기. 글자 수(공백 포함)가 늘면 200px 이름표 안에 한 줄로 들어가도록 줄인다
+ * (Gaegu 한글 한 글자 폭은 글자 크기의 약 0.8~0.85배).
+ * Tailwind 임의값 클래스는 문자열 보간으로 만들 수 없어 단계별 리터럴로 둔다.
+ */
+const LG_NAME_STEPS = [
+  { maxChars: 4, cls: 'text-[48px]' },
+  { maxChars: 5, cls: 'text-[38px]' },
+  { maxChars: 6, cls: 'text-[32px]' },
+  { maxChars: 8, cls: 'text-[24px]' },
+] as const;
+const LG_NAME_MIN = 'text-[20px]';
+
+export function lgNameClass(name: string): string {
+  const chars = [...name].length;
+  return LG_NAME_STEPS.find((step) => chars <= step.maxChars)?.cls ?? LG_NAME_MIN;
+}
 
 type Props = {
   index: number;
@@ -12,6 +37,8 @@ type Props = {
   state: NoteSeatState;
   size?: keyof typeof SIZE;
   variant?: 0 | 1 | 2;
+  /** 모둠 역할. 이름표 안 아랫줄에 작게 쓴다(밖에 두면 아래 줄 이름표에 가려진다). */
+  role?: string;
   onClick?: () => void;
   onRestore?: () => void;
   highlight?: boolean;
@@ -31,6 +58,7 @@ export function NoteSeat({
   state,
   size = 'sm',
   variant = 0,
+  role,
   onClick,
   onRestore,
   highlight = false,
@@ -56,6 +84,8 @@ export function NoteSeat({
   const interactive = handler
     ? 'cursor-pointer hover:ring-2 hover:ring-ink focus-visible:ring-2 focus-visible:ring-ink'
     : '';
+  // lg 이름은 한 줄 유지(truncate). 단계별 글자 크기로 대부분 잘리지 않고, 아주 긴 이름만 말줄임된다.
+  const nameClass = size === 'lg' ? `block max-w-full truncate ${lgNameClass(name ?? '')}` : undefined;
   return (
     <button
       type="button"
@@ -73,7 +103,7 @@ export function NoteSeat({
       {state === 'fixed' && <PushPin color="gold" />}
       {/* 좌석 번호: mute는 paper-2·paper-3 배경에서 4.5:1 미달(각 4.25/4.46)이라
           ink를 사용한다 (src/styles/contrast.test.ts 참고). */}
-      <span className="font-body text-[10px] font-normal text-ink">{index + 1}</span>
+      <span className={NUMBER[size]}>{index + 1}</span>
       {isRemoved ? (
         // R38: onRestore가 없으면 되살릴 수 없으므로 "다시 쓰기"를 약속하는 문구를 쓰지 않는다.
         <span>{onRestore ? '다시 쓰기' : '빈 자리로 둠'}</span>
@@ -81,8 +111,15 @@ export function NoteSeat({
         // R30: opacity 합성(~3.0:1)이 아니라 ink 색 + normal weight로 "비어있음"을 표현한다.
         <span className="text-ink font-normal">빈 자리</span>
       ) : (
-        <span>{name}</span>
+        <span data-seat-name className={nameClass}>
+          {name}
+        </span>
       )}
+      {role && !isRemoved && !showEmpty ? (
+        <span data-seat-role className={`mt-1 font-body font-bold leading-none text-ink ${ROLE_TEXT[size]}`}>
+          {role}
+        </span>
+      ) : null}
     </button>
   );
 }

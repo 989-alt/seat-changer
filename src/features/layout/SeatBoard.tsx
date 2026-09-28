@@ -7,9 +7,10 @@
 //             custom과 같은 절대 배치로 그린다. teacherView -> 좌표 180도 반전
 //             (레거시 group-layout.js:229-232의 역순 렌더와 같은 효과).
 //   custom  : teacherView -> 좌표 180도 반전 (custom-layout.js:285-289)
-//   ushape  : 레거시는 flex 줄(위/좌/우)로 렌더하며 teacherView에서 순서를 뒤집었다.
-//             계약서 3-2는 arcPos 기반 절대 배치를 요구하므로, 같은 효과를 좌표
-//             180도 반전으로 낸다(custom과 동일한 방식).
+//   ushape  : 코어의 row/col(윗줄 row 0 = 칠판 쪽, 왼쪽 줄 col 0, 오른쪽 줄 col columns-1)을
+//             격자 칸에 그대로 놓는다(레거시의 줄 단위 렌더와 같은 모양). teacherView -> 행·열 역순.
+//             예전의 반원 백분율 배치는 폭을 정하지 않는 부모 안에서 폭이 0으로 무너져
+//             자리가 한 곳에 겹쳤다(개선 스펙 2026-09-28 1절).
 import { ChalkBoard } from '@/components/cork/ChalkBoard';
 import { NoteSeat, type NoteSeatState } from '@/components/cork/NoteSeat';
 import { getLayout } from '@/core/layouts';
@@ -23,6 +24,8 @@ export interface SeatBoardProps {
   perspective?: 'student' | 'teacher';
   highlightSeats?: number[];
   fixedMode?: boolean;
+  /** false면 고정 자리도 일반 자리처럼 그린다(압정·"(고정)" 없음). 학생이 보는 발표 화면·인쇄용. */
+  showFixed?: boolean;
   editable?: boolean;
   onSeatClick?: (seatIndex: number) => void;
   onSeatRestore?: (seatIndex: number) => void;
@@ -36,19 +39,15 @@ export interface SeatBoardProps {
 type Size = 'sm' | 'lg';
 
 // NoteSeat의 SIZE와 같은 높이를 써서 빈 공간이 격자 흐름을 그대로 유지하게 한다.
-const SLOT_H: Record<Size, string> = { sm: 'h-14', lg: 'h-24' };
-const SLOT_W: Record<Size, string> = { sm: 'w-[84px]', lg: 'w-[140px]' };
+const SLOT_H: Record<Size, string> = { sm: 'h-14', lg: 'h-[100px]' };
+// lg(발표·인쇄)는 모든 배치에서 같은 가로형 폭을 쓴다(개선 스펙 3-1).
+// sm의 격자 흐름(시험대형·짝꿍·U자)은 폭을 정하지 않아 이름 길이를 따른다.
+const SLOT_W: Record<Size, string> = { sm: 'w-[84px]', lg: 'w-[200px]' };
 const GAP: Record<Size, string> = { sm: 'gap-2', lg: 'gap-4' };
 const PAIR_GAP: Record<Size, string> = { sm: 'gap-[2px]', lg: 'gap-[4px]' };
-// 절대 배치(ushape/custom) 캔버스 높이. lg는 1920x1080 발표 화면에서
-// 칠판(약 60px)과 함께 세로로 들어가는 크기다.
-const CANVAS_H: Record<Size, string> = { sm: 'h-[320px]', lg: 'h-[620px]' };
-const ROLE_TEXT: Record<Size, string> = { sm: 'text-[11px]', lg: 'text-[18px]' };
 const GROUP_TEXT: Record<Size, string> = { sm: 'text-[14px]', lg: 'text-[24px]' };
 // 모둠 팻말은 좌상단 좌석의 중심에서 위로 이 만큼 띄운다(좌석 높이 절반 + 글자 높이).
 const GROUP_LABEL_OFFSET: Record<Size, number> = { sm: 46, lg: 74 };
-// 이름표 아래 역할 글씨가 차지하는 높이(캔버스 여유용).
-const ROLE_PAD: Record<Size, number> = { sm: 24, lg: 36 };
 // 모둠 팻말과 이름표 윗변 사이 간격.
 const LABEL_GAP = 14;
 
@@ -77,6 +76,8 @@ function SeatSlot({
   onSeatClick,
   onSeatRestore,
 }: SeatSlotProps) {
+  // lg는 격자 흐름에서도 이름표 칸 폭을 고정한다(열 폭이 이름 길이에 따라 달라지지 않게).
+  const width = size === 'lg' ? SLOT_W.lg : '';
   // 비활성 좌석 + 편집 불가: 격자 흐름은 유지하되 아무것도 보이지 않는 빈 공간.
   // 장식/자리표시 요소이므로 aria-hidden과 pointer-events-none을 함께 준다(계약서 1절).
   if (removed && !editable) {
@@ -85,28 +86,25 @@ function SeatSlot({
         data-seat={index}
         data-state="disabled"
         aria-hidden="true"
-        className={`pointer-events-none ${SLOT_H[size]}`}
+        className={`pointer-events-none ${SLOT_H[size]} ${width}`}
       />
     );
   }
 
   const state: NoteSeatState = removed ? 'disabled' : fixed ? 'fixed' : name ? 'assigned' : 'empty';
   return (
-    <div className="flex flex-col items-stretch">
+    <div className={`flex flex-col items-stretch ${width}`}>
       <NoteSeat
         index={index}
         name={name}
         state={state}
         size={size}
         variant={(index % 3) as 0 | 1 | 2}
+        role={role}
         highlight={highlight}
         onClick={onSeatClick ? () => onSeatClick(index) : undefined}
         onRestore={onSeatRestore ? () => onSeatRestore(index) : undefined}
       />
-      {role ? (
-        // cork 배경 위 글자이므로 text-ink (5.93:1). opacity로 위계를 만들지 않는다.
-        <span className={`mt-[2px] text-center font-body font-bold text-ink ${ROLE_TEXT[size]}`}>{role}</span>
-      ) : null}
     </div>
   );
 }
@@ -124,15 +122,16 @@ function extent(values: number[]): { min: number; max: number; span: number } {
 /** 이름표 한 칸의 실제 크기(px). SLOT_W/SLOT_H와 같은 값이어야 한다. */
 const SLOT_PX: Record<Size, { w: number; h: number }> = {
   sm: { w: 84, h: 56 },
-  lg: { w: 140, h: 96 },
+  lg: { w: 200, h: 100 },
 };
 
 /**
  * 원본 px/py 좌표계에서 책상 한 개가 차지하는 크기.
  * custom: `core/layouts/custom.ts`의 DESK_W/DESK_H (60x40)
  * group : `core/layouts/group.ts`의 seatW/seatH (64x48)
- * 편집기(CustomDeskEditor·GroupPositionEditor)도 같은 값을 쓰므로,
- * 편집기에서 본 배치와 배치도의 비례가 어긋나지 않는다.
+ * 편집기(CustomDeskEditor·GroupPositionEditor)도 같은 값을 쓴다. lg(200x100)는 가로 배율이
+ * 세로 배율보다 커서 편집기보다 가로로 조금 넓게 그려진다(책상 한 개 = 이름표 한 칸이라
+ * 겹치지 않는 원칙은 그대로다. 개선 스펙 3-1).
  */
 const SOURCE_CELL: Record<'custom' | 'group', { w: number; h: number }> = {
   custom: { w: 60, h: 40 },
@@ -174,6 +173,27 @@ function pixelScale(
   };
 }
 
+/**
+ * U자 좌석을 격자 칸(1부터)에 놓는다. 1열 설정처럼 왼쪽·오른쪽 줄이 같은 칸을
+ * 가리키면 뒤에 오는 좌석을 오른쪽 빈 칸으로 민다(자리가 겹쳐 보이면 안 된다).
+ */
+function ushapeCells(positions: SeatPosition[], teacher: boolean): { pos: SeatPosition; row: number; col: number }[] {
+  const taken = new Set<string>();
+  const placed = positions.map((pos) => {
+    let col = pos.col;
+    while (taken.has(`${pos.row}:${col}`)) col += 1;
+    taken.add(`${pos.row}:${col}`);
+    return { pos, row: pos.row, col };
+  });
+  const rows = Math.max(...placed.map((p) => p.row)) + 1;
+  const cols = Math.max(...placed.map((p) => p.col)) + 1;
+  return placed.map(({ pos, row, col }) => ({
+    pos,
+    row: (teacher ? rows - 1 - row : row) + 1,
+    col: (teacher ? cols - 1 - col : col) + 1,
+  }));
+}
+
 export function SeatBoard({
   data,
   mapping,
@@ -181,6 +201,7 @@ export function SeatBoard({
   perspective = 'student',
   highlightSeats,
   fixedMode = false,
+  showFixed = true,
   editable = false,
   onSeatClick,
   onSeatRestore,
@@ -198,7 +219,7 @@ export function SeatBoard({
   const revealedSet = revealedSeats === 'all' ? null : new Set(revealedSeats);
 
   // 미공개 좌석은 뒷면(빈 종이)이다. 이름·역할은 물론 고정 압정도 붙이지 않아
-  // 공개 전에 어떤 정보도 DOM에 남지 않게 한다.
+  // 공개 전에 어떤 정보도 DOM에 남지 않게 한다. showFixed=false면 공개 뒤에도 압정이 없다.
   const slot = (pos: SeatPosition) => {
     const i = pos.index;
     const revealed = revealedSet === null || revealedSet.has(i);
@@ -210,28 +231,12 @@ export function SeatBoard({
         removed={removedSet.has(i)}
         editable={editable}
         name={revealed ? mapping?.[i] : undefined}
-        fixed={revealed && fixedSet.has(i)}
+        fixed={showFixed && revealed && fixedSet.has(i)}
         highlight={highlightSet.has(i) || (fixedMode && fixedSet.has(i))}
         role={revealed ? roles?.[i] : undefined}
         onSeatClick={onSeatClick}
         onSeatRestore={onSeatRestore}
       />
-    );
-  };
-
-  // 절대 배치 공통: 0~100% 좌표를 계산하고, 교사 시선이면 180도 반전한다.
-  const absSlot = (pos: SeatPosition, leftPct: number, topPct: number) => {
-    const left = teacher ? 100 - leftPct : leftPct;
-    const top = teacher ? 100 - topPct : topPct;
-    return (
-      <div
-        key={pos.index}
-        data-abs-slot={pos.index}
-        className={`absolute -translate-x-1/2 -translate-y-1/2 ${SLOT_W[size]}`}
-        style={{ left: `${left}%`, top: `${top}%` }}
-      >
-        {slot(pos)}
-      </div>
     );
   };
 
@@ -282,22 +287,30 @@ export function SeatBoard({
       </div>
     );
   } else if (data.layoutType === 'ushape') {
-    // arcPos(U자 경로 위치)를 0~1로 정규화한 뒤 반원 각도로 매핑한다.
-    // t=0 -> 왼쪽 아래, t=0.5 -> 칠판 쪽 가운데 위, t=1 -> 오른쪽 아래.
-    const arc = extent(positions.map((p) => p.arcPos ?? 0));
+    const cells = ushapeCells(positions, teacher);
+    const cols = Math.max(...cells.map((c) => c.col));
     body = (
-      <div data-arrangement="ushape" className={`relative w-full ${CANVAS_H[size]}`}>
-        {positions.map((pos) => {
-          const t = ((pos.arcPos ?? 0) - arc.min) / arc.span;
-          const angle = Math.PI * (1 - t);
-          return absSlot(pos, 50 + Math.cos(angle) * 42, 78 - Math.sin(angle) * 62);
-        })}
+      <div
+        data-arrangement="ushape"
+        className={`grid justify-center ${GAP[size]}`}
+        style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}
+      >
+        {cells.map(({ pos, row, col }) => (
+          <div
+            key={pos.index}
+            data-grid-slot={pos.index}
+            data-grid-row={row}
+            data-grid-col={col}
+            style={{ gridRow: row, gridColumn: col }}
+          >
+            {slot(pos)}
+          </div>
+        ))}
       </div>
     );
   } else if (data.layoutType === 'custom') {
-    // 이름표 아래 역할 글씨가 캔버스 밖으로 잘리지 않도록 위아래로 같은 여유를 준다
-    // (교사 시선은 좌표를 180도 뒤집으므로 여유가 위아래 같아야 어긋나지 않는다).
-    const scale = pixelScale(positions, size, SOURCE_CELL.custom, { top: ROLE_PAD[size], bottom: ROLE_PAD[size] });
+    // 역할 글씨는 이름표 안에 있으므로 캔버스에 위아래 여유를 따로 두지 않는다.
+    const scale = pixelScale(positions, size, SOURCE_CELL.custom);
     body = (
       <div
         data-arrangement="custom"
@@ -312,7 +325,8 @@ export function SeatBoard({
   } else if (data.layoutType === 'group') {
     // 모둠 블록 위치는 코어가 px/py에 반영해 둔다. 여기서 격자를 다시 계산하면
     // 교사가 드래그해 저장한 위치(groupPositions)가 배치도에서 사라진다.
-    // 모둠 이름 팻말(위)과 역할 글씨(아래)가 잘리지 않게 위아래로 같은 여유를 둔다.
+    // 모둠 이름 팻말(위)이 잘리지 않게 여유를 둔다. 교사 시선은 좌표를 180도 뒤집으므로
+    // 여유는 위아래가 같아야 한다.
     const gPad = GROUP_LABEL_OFFSET[size];
     const scale = pixelScale(positions, size, SOURCE_CELL.group, { top: gPad, bottom: gPad });
     const groupOrder = uniqueSorted(positions.map((p) => p.groupIndex ?? 0));

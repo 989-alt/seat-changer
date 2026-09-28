@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { NoteSeat } from './NoteSeat';
+import { NoteSeat, lgNameClass } from './NoteSeat';
 
 describe('NoteSeat', () => {
   it('배정된 자리', () => {
@@ -47,9 +47,49 @@ describe('NoteSeat', () => {
     await userEvent.click(screen.getByRole('button'));
     expect(onClick).toHaveBeenCalledTimes(1);
   });
-  it('발표 크기는 28px 이상', () => {
+  it('lg 이름은 4글자까지 48px이고 길면 단계적으로 줄인다', () => {
+    expect(lgNameClass('김')).toBe('text-[48px]');
+    expect(lgNameClass('김하람')).toBe('text-[48px]');
+    expect(lgNameClass('남궁민수')).toBe('text-[48px]');
+    expect(lgNameClass('황보아리랑')).toBe('text-[38px]');
+    expect(lgNameClass('가나다라마바')).toBe('text-[32px]');
+    expect(lgNameClass('가나다라마바사아')).toBe('text-[24px]');
+    expect(lgNameClass('가나다라마바사아자')).toBe('text-[20px]');
+  });
+
+  it('lg 이름표는 이름에 크기 클래스를 붙이고 한 줄로 자르며, 번호는 왼쪽 위에 둔다', () => {
     render(<NoteSeat index={0} name="김하람" state="assigned" size="lg" />);
-    expect(screen.getByRole('button').className).toContain('text-[28px]');
+    const b = screen.getByRole('button');
+    expect(b).toHaveAttribute('data-size', 'lg');
+    expect(b.className).toContain('h-[100px]');
+    const name = b.querySelector('[data-seat-name]')!;
+    expect(name.textContent).toBe('김하람');
+    expect(name.className).toContain('text-[48px]');
+    expect(name.className).toContain('truncate');
+    const num = screen.getByText('1');
+    expect(num.className).toContain('absolute');
+    expect(num.className).toContain('text-ink');
+  });
+
+  it('이름 글자에만 data-seat-name을 단다(빈 자리·빈 자리로 둠에는 없다)', () => {
+    const { unmount } = render(<NoteSeat index={0} state="empty" size="lg" />);
+    expect(document.querySelector('[data-seat-name]')).toBeNull();
+    unmount();
+    render(<NoteSeat index={0} state="disabled" size="lg" />);
+    expect(document.querySelector('[data-seat-name]')).toBeNull();
+  });
+
+  it('역할은 이름표 안 아랫줄에 쓴다', () => {
+    render(<NoteSeat index={0} name="김하람" state="assigned" size="lg" role="모둠장" />);
+    const b = screen.getByRole('button');
+    const role = b.querySelector('[data-seat-role]')!;
+    expect(role.textContent).toBe('모둠장');
+    expect(role.className).toContain('text-ink');
+  });
+
+  it('빈 자리에는 역할을 쓰지 않는다', () => {
+    render(<NoteSeat index={0} state="empty" size="lg" role="모둠장" />);
+    expect(screen.queryByText('모둠장')).toBeNull();
   });
 
   // R30: 빈 자리 라벨은 opacity 합성(~3.0:1) 대신 ink 색 + normal weight로 대비를 확보한다.

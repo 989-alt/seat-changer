@@ -35,14 +35,29 @@ describe('SeatBoard 배치별 좌석 개수', () => {
     expect(container.querySelectorAll('[data-pair-group]')).toHaveLength(4);
   });
 
-  it('ushape: columns + rows*2 만큼 절대 배치로 렌더한다', () => {
+  it('ushape: columns + rows*2 만큼 row/col 격자 칸에 놓는다', () => {
     const { container } = render(
       <SeatBoard data={makeData({ layoutType: 'ushape', layoutSettings: { columns: 4, rows: 2 } as never })} />,
     );
     expect(seatNodes(container)).toHaveLength(8);
-    const slots = container.querySelectorAll<HTMLElement>('[data-abs-slot]');
-    expect(slots).toHaveLength(8);
-    expect(slots[0]!.style.left).not.toBe('');
+    const cell = (i: number) => container.querySelector<HTMLElement>(`[data-grid-slot="${i}"]`)!;
+    // 윗줄(칠판 쪽) 0~3번은 1행, 왼쪽 줄 4·5번은 1열, 오른쪽 줄 6·7번은 4열
+    expect([cell(0).dataset.gridRow, cell(0).dataset.gridCol]).toEqual(['1', '1']);
+    expect([cell(3).dataset.gridRow, cell(3).dataset.gridCol]).toEqual(['1', '4']);
+    expect([cell(4).dataset.gridRow, cell(4).dataset.gridCol]).toEqual(['2', '1']);
+    expect([cell(7).dataset.gridRow, cell(7).dataset.gridCol]).toEqual(['3', '4']);
+    expect(container.querySelector('[data-abs-slot]')).toBeNull();
+  });
+
+  it('ushape: 왼쪽·오른쪽 줄이 같은 열이 되는 1열 설정도 칸이 겹치지 않는다', () => {
+    const { container } = render(
+      <SeatBoard data={makeData({ layoutType: 'ushape', layoutSettings: { columns: 1, rows: 2 } as never })} />,
+    );
+    const cells = Array.from(container.querySelectorAll<HTMLElement>('[data-grid-slot]')).map(
+      (c) => `${c.dataset.gridRow}:${c.dataset.gridCol}`,
+    );
+    expect(cells).toHaveLength(5);
+    expect(new Set(cells).size).toBe(5);
   });
 
   it('custom: 책상 개수만큼 렌더한다', () => {
@@ -156,15 +171,30 @@ describe('SeatBoard 시선(perspective)', () => {
     expect(screen.getByText('교 탁')).toBeInTheDocument();
   });
 
-  it('교사 시선의 절대 배치는 좌표가 180도 뒤집힌다', () => {
-    const abs = makeData({ layoutType: 'ushape', layoutSettings: { columns: 3, rows: 1 } as never });
-    const student = render(<SeatBoard data={abs} />).container.querySelector<HTMLElement>('[data-abs-slot="0"]');
-    const teacher = render(<SeatBoard data={abs} perspective="teacher" />).container.querySelector<HTMLElement>(
-      '[data-abs-slot="0"]',
-    );
-    const pct = (v: string) => Number.parseFloat(v);
-    expect(pct(student!.style.left) + pct(teacher!.style.left)).toBeCloseTo(100, 3);
-    expect(pct(student!.style.top) + pct(teacher!.style.top)).toBeCloseTo(100, 3);
+  it('교사 시선의 U자는 행·열이 모두 뒤집힌다', () => {
+    const u = makeData({ layoutType: 'ushape', layoutSettings: { columns: 3, rows: 1 } as never });
+    const student = render(<SeatBoard data={u} />).container.querySelector<HTMLElement>('[data-grid-slot="0"]')!;
+    const teacher = render(<SeatBoard data={u} perspective="teacher" />).container.querySelector<HTMLElement>(
+      '[data-grid-slot="0"]',
+    )!;
+    expect([student.dataset.gridRow, student.dataset.gridCol]).toEqual(['1', '1']);
+    // 3열 x 2행(윗줄 + 옆줄 1개) 격자에서 좌상단 칸은 우하단 칸이 된다
+    expect([teacher.dataset.gridRow, teacher.dataset.gridCol]).toEqual(['2', '3']);
+  });
+
+  it('교사 시선의 자유배치는 좌표가 캔버스 안에서 180도 뒤집힌다', () => {
+    const data = makeData({
+      layoutType: 'custom',
+      layoutSettings: { customDesks: [{ x: 0, y: 0 }, { x: 100, y: 80 }] } as never,
+    });
+    const s = render(<SeatBoard data={data} />).container;
+    const t = render(<SeatBoard data={data} perspective="teacher" />).container;
+    const canvas = s.querySelector<HTMLElement>('[data-arrangement="custom"]')!;
+    const w = Number.parseFloat(canvas.style.width);
+    const h = Number.parseFloat(canvas.style.height);
+    const at = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-abs-slot="0"]')!.style;
+    expect(Number.parseFloat(at(s).left) + Number.parseFloat(at(t).left)).toBeCloseTo(w, 3);
+    expect(Number.parseFloat(at(s).top) + Number.parseFloat(at(t).top)).toBeCloseTo(h, 3);
   });
 });
 
@@ -215,6 +245,11 @@ describe('SeatBoard 공개(revealedSeats)', () => {
     expect(screen.getByText('모둠장')).toBeInTheDocument();
     expect(screen.queryByText('기록이')).toBeNull();
   });
+
+  it('역할은 이름표 안에 쓴다', () => {
+    const { container } = render(<SeatBoard data={data} mapping={mapping} roles={{ 0: '모둠장' }} size="lg" />);
+    expect(container.querySelector('[data-seat="0"]')).toHaveTextContent('모둠장');
+  });
 });
 
 describe('SeatBoard 고정 좌석', () => {
@@ -234,6 +269,22 @@ describe('SeatBoard 고정 좌석', () => {
     const { container } = render(<SeatBoard data={data} fixedMode />);
     expect(container.querySelector('[data-seat="0"]')).toHaveAttribute('data-highlight', 'true');
     expect(container.querySelector('[data-seat="1"]')).not.toHaveAttribute('data-highlight');
+  });
+
+  it('showFixed=false면 고정 좌석도 일반 좌석처럼 그린다', () => {
+    const { container } = render(
+      <SeatBoard data={data} mapping={{ 0: '김하람', 1: '이도윤' }} showFixed={false} />,
+    );
+    const seat = container.querySelector('[data-seat="0"]')!;
+    expect(seat).toHaveAttribute('data-state', 'assigned');
+    expect(seat.querySelector('[data-cork="pushpin"]')).toBeNull();
+    expect(seat).toHaveAttribute('aria-label', '1번 자리: 김하람');
+  });
+
+  it('showFixed=false면 뽑기 전 빈 화면에서도 고정 자리를 드러내지 않는다', () => {
+    const { container } = render(<SeatBoard data={data} showFixed={false} />);
+    expect(container.querySelector('[data-seat="0"]')).toHaveAttribute('data-state', 'empty');
+    expect(container.querySelector('[data-cork="pushpin"]')).toBeNull();
   });
 });
 
@@ -255,6 +306,19 @@ describe('SeatBoard 상호작용과 크기', () => {
   it('size=lg는 발표 화면용 큰 좌석을 쓴다', () => {
     const { container } = render(<SeatBoard data={data} size="lg" />);
     expect(container.querySelector('[data-seat="0"]')).toHaveAttribute('data-size', 'lg');
+  });
+
+  it('size=lg는 시험대형에서도 모든 이름표 칸을 200px로 고정한다', () => {
+    const { container } = render(
+      <SeatBoard
+        data={makeData({ layoutType: 'exam', layoutSettings: { columns: 3, rows: 1 } as never })}
+        size="lg"
+        mapping={{ 0: '가', 1: '가나다라마바' }}
+      />,
+    );
+    const seats = seatNodes(container);
+    expect(seats).toHaveLength(3);
+    for (const seat of seats) expect(seat.parentElement!.className).toContain('w-[200px]');
   });
 
   it('highlightSeats로 강조 좌석을 지정한다', () => {

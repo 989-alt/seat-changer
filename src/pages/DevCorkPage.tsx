@@ -87,12 +87,20 @@ export function DevCorkPage() {
               );
             })}
           </div>
-          <div className="grid w-full max-w-[720px] grid-cols-4 gap-3">
-            <NoteSeat index={0} name="황보아리랑" state="assigned" size="lg" onClick={count} />
-            <NoteSeat index={1} name="이도윤" state="fixed" size="lg" onClick={count} />
-            <NoteSeat index={2} state="empty" size="lg" onClick={count} />
+          <div className="flex flex-wrap gap-3">
+            <div className="w-[200px]">
+              <NoteSeat index={0} name="황보아리랑" state="assigned" size="lg" onClick={count} />
+            </div>
+            <div className="w-[200px]">
+              <NoteSeat index={1} name="이도윤" state="fixed" size="lg" onClick={count} />
+            </div>
+            <div className="w-[200px]">
+              <NoteSeat index={2} state="empty" size="lg" onClick={count} />
+            </div>
             {/* R38: onRestore가 없으므로 "빈 자리로 둠"으로 표시되고 네이티브 disabled가 된다. */}
-            <NoteSeat index={3} state="disabled" size="lg" />
+            <div className="w-[200px]">
+              <NoteSeat index={3} state="disabled" size="lg" />
+            </div>
           </div>
           <ChalkBoard kind="podium" />
         </div>

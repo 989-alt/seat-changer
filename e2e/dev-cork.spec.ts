@@ -31,7 +31,7 @@ type FontFaceNeed = { font: string; text: string };
 
 /** h1 "코르크 컴포넌트"가 쓰는 얼굴 (font-hand, 굵기 지정 없음 → 400). */
 const H1_FACE: FontFaceNeed = { font: '400 36px Gaegu', text: '코르크 컴포넌트' };
-/** lg 좌석 이름표가 쓰는 얼굴 (NoteSeat: font-hand font-bold + text-[28px] → 700 28px). */
+/** lg 좌석 이름표가 쓰는 얼굴 (NoteSeat: font-hand font-bold → 700. 글자 크기는 이름 길이에 따라 20~48px이고, 얼굴 로드는 크기와 무관). */
 const SEAT_LG_FACE: FontFaceNeed = { font: '700 28px Gaegu', text: '황보아리랑' };
 
 /**
