@@ -12,25 +12,32 @@ test.beforeEach(async ({ page }) => {
   }, v1);
 });
 
-test('뽑기를 완주하면 모든 이름이 공개되고 결과가 저장된다', async ({ page }) => {
+test('지난 배치가 보이고, 다시 뽑으면 새 결과가 저장된다', async ({ page }) => {
   await page.goto('/present');
   const board = page.getByTestId('seat-board');
   await expect(board).toBeVisible();
 
-  // 뽑기 전에는 이름이 보이지 않는다
-  await expect(board).not.toContainText('김하람');
+  // 저장된 지난 배치가 공개된 채로 열린다(개선 스펙 3-4)
+  await expect(board).toContainText('김하람');
+  const before = await page.evaluate(() => JSON.parse(localStorage.getItem('seat-changer-data-6-7')!));
 
-  await page.getByRole('button', { name: /자리 뽑기/ }).click();
+  await page.getByRole('button', { name: '다시 뽑기' }).click();
 
-  // 연출(카운트다운 3초 + 셔플 0.8초 + 줄 단위 공개)이 끝나면 이름이 모두 공개된다
-  await expect(board).toContainText('김하람', { timeout: 20_000 });
+  // 연출 중 결과가 저장되면 lastAssignment가 새것으로 바뀌고 직전 배치가 이력으로 간다
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => JSON.parse(localStorage.getItem('seat-changer-data-6-7')!).lastAssignment.timestamp),
+      { timeout: 20_000 },
+    )
+    .not.toBe(before.lastAssignment.timestamp);
+  // 연출이 끝나면 조작 막대가 다시 보인다
+  await expect(page.locator('[data-present="controls"]')).not.toHaveClass(/invisible/, { timeout: 20_000 });
 
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('seat-changer-data-6-7')!));
-  expect(saved.lastAssignment).not.toBeNull();
   expect(Object.keys(saved.lastAssignment.mapping).length).toBe(22);
-
-  // 다시 뽑기 라벨로 바뀐다
-  await expect(page.getByRole('button', { name: '다시 뽑기' })).toBeVisible();
+  expect(saved.assignmentHistory.length).toBe(Math.min(before.assignmentHistory.length + 1, 5));
+  await expect(board).toContainText('김하람');
 
   await page.screenshot({ path: 'test-results/present-drawn.png' });
 });
