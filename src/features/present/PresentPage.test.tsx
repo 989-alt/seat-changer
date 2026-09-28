@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createDefaultData } from '@/core/model/defaults';
 import type { ClassData } from '@/core/model/types';
@@ -161,7 +161,7 @@ describe('PresentPage', () => {
     render(<PresentPage />);
 
     await user.click(seatAt(0));
-    expect(statusText()).toBe('1번 자리를 골랐습니다. 바꿀 자리를 누르세요 (같은 자리를 다시 누르면 취소)');
+    expect(statusText()).toBe('1번 자리를 골랐습니다. 바꿀 자리를 누르세요 (다시 누르면 취소)');
     await user.click(seatAt(1));
 
     const saved = useAppStore.getState().data;
@@ -224,6 +224,54 @@ describe('PresentPage', () => {
     expect(screen.getByRole('button', { name: '규칙 위반 1건' })).toBeInTheDocument();
     expect(document.querySelector('[data-present="violations"]')).toBeNull();
     expect(document.body.textContent).not.toContain('분리 위반');
+  });
+
+  it('자리를 골라 둔 채 다시 뽑으면 선택이 풀린다', async () => {
+    useAppStore.setState({ data: makeData({ lastAssignment: LAST }) });
+    const user = userEvent.setup();
+    render(<PresentPage />);
+
+    await user.click(seatAt(0));
+    expect(statusText()).toContain('1번 자리를 골랐습니다');
+
+    await user.click(screen.getByRole('button', { name: /다시 뽑기/ }));
+    // reduced motion이라 곧바로 새 배치가 저장된다
+    await waitFor(() => expect(useAppStore.getState().data.lastAssignment?.timestamp).not.toBe(1));
+    expect(statusText()).toBe('두 자리를 차례로 누르면 서로 바뀝니다');
+    expect(document.querySelector('[data-cork="note-seat"][data-highlight="true"]')).toBeNull();
+  });
+
+  it('빈 자리와 바꾸면 학생을 옮겼다고 알린다', async () => {
+    useAppStore.setState({
+      data: makeData({ students: ['가람'], classSize: 1, lastAssignment: { mapping: { 0: '가람' }, timestamp: 1 } }),
+    });
+    const user = userEvent.setup();
+    render(<PresentPage />);
+
+    await user.click(seatAt(0));
+    await user.click(seatAt(1));
+
+    expect(statusText()).toBe('가람 학생을 2번 자리로 옮겼습니다.');
+    expect(useAppStore.getState().data.lastAssignment?.mapping).toEqual({ 1: '가람' });
+  });
+
+  it('빈 자리 두 곳을 고르면 아무것도 바꾸지 않고 선택만 푼다', async () => {
+    useAppStore.setState({
+      data: makeData({
+        students: ['가람'],
+        classSize: 1,
+        layoutSettings: { columns: 3, rows: 1 } as never,
+        lastAssignment: { mapping: { 0: '가람' }, timestamp: 1 },
+      }),
+    });
+    const user = userEvent.setup();
+    render(<PresentPage />);
+
+    await user.click(seatAt(1));
+    await user.click(seatAt(2));
+
+    expect(statusText()).toBe('두 자리를 차례로 누르면 서로 바뀝니다');
+    expect(useAppStore.getState().data.lastAssignment?.mapping).toEqual({ 0: '가람' });
   });
 });
 

@@ -83,8 +83,8 @@ describe('PresentControls', () => {
   it('상태 칸은 가장 긴 안내 문구가 들어가는 폭을 최소로 보장한다(좁으면 버튼이 다음 줄로 간다)', () => {
     render(<PresentControls {...props()} />);
     const status = document.querySelector('[data-present="status"]')!;
-    expect(status.className).toContain('min-w-[min(100%,34rem)]');
-    expect(status.className).not.toContain('min-w-[12rem]');
+    expect(status.className).toContain('min-w-[min(100%,28rem)]');
+    expect(status.className).not.toContain('min-w-[min(100%,34rem)]');
   });
 
   it('규칙 위반이 없으면 위반 배지도 없다', () => {

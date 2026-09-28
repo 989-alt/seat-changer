@@ -185,3 +185,26 @@ test('1366x625에서도 교환 안내와 교환 완료 알림이 상태 칸에�
 
   await page.screenshot({ path: 'test-results/present-tv-1366-swap.png' });
 });
+
+test('1920x1080에서는 선생님 시선·전체 화면을 켜도 조작 막대가 한 줄이다', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await seed(page, v1);
+  await page.goto('/present');
+  await expect(page.locator('[data-seat-name]').first()).toBeVisible();
+  const bar = page.locator('[data-present="controls"]');
+  // 한 줄이면 약 59px, 두 줄이면 약 103px
+  const oneRow = async () => (await bar.boundingBox())!.height <= 70;
+
+  expect(await oneRow()).toBe(true);
+
+  await page.getByRole('button', { name: /학생 시선/ }).click();
+  await expect(page.getByRole('button', { name: /선생님 시선/ })).toBeVisible();
+  expect(await oneRow()).toBe(true);
+
+  const fullscreen = page.getByRole('button', { name: '전체 화면' });
+  if ((await fullscreen.count()) > 0) {
+    await fullscreen.click();
+    await expect(page.getByRole('button', { name: '전체 화면 끄기' })).toBeVisible();
+    expect(await oneRow()).toBe(true);
+  }
+});

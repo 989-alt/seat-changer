@@ -91,7 +91,7 @@ export function PresentControls({
         data-present="status"
         data-tone={status?.tone}
         aria-live="polite"
-        className={`h-9 min-w-[min(100%,34rem)] flex-1 truncate text-ink ${statusLook}`}
+        className={`h-9 min-w-[min(100%,28rem)] flex-1 truncate text-ink ${statusLook}`}
       >
         {status?.text ?? ''}
       </p>
@@ -210,7 +210,7 @@ export function PresentControls({
               )
             }
           >
-            {fullscreen.active ? '전체 화면 끝내기' : '전체 화면'}
+            {fullscreen.active ? '전체 화면 끄기' : '전체 화면'}
           </WoodButton>
         )}
 

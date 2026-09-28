@@ -213,14 +213,33 @@ export function PresentPage() {
         setSwapFirst(null);
         return;
       }
-      const nameA = seq.mapping?.[swapFirst] ?? '빈 자리';
-      const nameB = seq.mapping?.[seat] ?? '빈 자리';
-      seq.swap(swapFirst, seat);
+      const nameA = seq.mapping?.[swapFirst];
+      const nameB = seq.mapping?.[seat];
       setSwapFirst(null);
-      setSwapNotice(`${nameA} - ${nameB} 자리를 바꿨습니다.`);
+      // 빈 자리 두 곳이면 바꿀 것이 없다(선택만 푼다).
+      if (!nameA && !nameB) return;
+      seq.swap(swapFirst, seat);
+      setSwapNotice(
+        nameA && nameB
+          ? `${nameA} - ${nameB} 자리를 바꿨습니다.`
+          : `${nameA ?? nameB} 학생을 ${(nameA ? seat : swapFirst) + 1}번 자리로 옮겼습니다.`,
+      );
     },
     [seq, swapFirst],
   );
+
+  // 새로 뽑으면 고르던 자리와 교환 알림은 새 배치와 무관하므로 먼저 지운다.
+  const startDraw = useCallback(() => {
+    setSwapFirst(null);
+    setSwapNotice(null);
+    void seq.start();
+  }, [seq]);
+
+  const startLotteryDraw = useCallback(() => {
+    setSwapFirst(null);
+    setSwapNotice(null);
+    void seq.startLottery();
+  }, [seq]);
 
   const togglePerspective = useCallback(() => {
     update({ viewPerspective: teacherView ? 'student' : 'teacher' });
@@ -319,7 +338,7 @@ export function PresentPage() {
   const status: PresentStatus | null = seq.lotteryName
     ? { text: seq.lotteryName, tone: 'lottery' }
     : swapFirst !== null
-      ? { text: `${swapFirst + 1}번 자리를 골랐습니다. 바꿀 자리를 누르세요 (같은 자리를 다시 누르면 취소)`, tone: 'hint' }
+      ? { text: `${swapFirst + 1}번 자리를 골랐습니다. 바꿀 자리를 누르세요 (다시 누르면 취소)`, tone: 'hint' }
       : swapNotice
         ? { text: swapNotice, tone: 'hint' }
         : canSwap
@@ -387,8 +406,8 @@ export function PresentPage() {
           lottery={seq.phase === 'lottery'}
           teacherView={teacherView}
           muted={muted}
-          onStart={() => void seq.start()}
-          onStartLottery={() => void seq.startLottery()}
+          onStart={startDraw}
+          onStartLottery={startLotteryDraw}
           onRevealOne={() => void seq.revealOne()}
           onRevealAll={seq.revealAll}
           onTogglePerspective={togglePerspective}
