@@ -428,7 +428,8 @@ export function PresentPage() {
         </div>
       )}
 
-      <ToastHost />
+      {/* 조작 막대가 화면 아래에 있어 토스트는 위쪽에 띄운다(막대 버튼을 가리지 않게). */}
+      <ToastHost placement="top-right" />
     </main>
   );
 }

@@ -1,4 +1,5 @@
-// 토스트 호스트. 화면 우하단 고정, 큐 방식으로 여러 개가 쌓인다(Task 계약서 3-1).
+// 토스트 호스트. 기본은 화면 우하단 고정(발표 화면은 조작 막대를 가리지 않게 우상단), 큐 방식으로
+// 여러 개가 쌓인다(Task 계약서 3-1).
 // loadNotice(useAppStore)도 여기서 감시해 토스트로 띄우고 즉시 clearNotice()한다.
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
@@ -9,7 +10,14 @@ import { WoodButton } from './cork/WoodButton';
 const AUTO_DISMISS_MS = 5000;
 const AUTO_DISMISS_WITH_ACTION_MS = 8000;
 
-export function ToastHost() {
+type ToastPlacement = 'bottom-right' | 'top-right';
+
+const PLACEMENT: Record<ToastPlacement, string> = {
+  'bottom-right': 'bottom-4 right-4',
+  'top-right': 'top-4 right-4',
+};
+
+export function ToastHost({ placement = 'bottom-right' }: { placement?: ToastPlacement } = {}) {
   const items = useToasts((s) => s.items);
   const push = useToasts((s) => s.push);
   const dismiss = useToasts((s) => s.dismiss);
@@ -60,7 +68,7 @@ export function ToastHost() {
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(320px,calc(100vw-2rem))] flex-col gap-2"
+      className={`pointer-events-none fixed ${PLACEMENT[placement]} z-50 flex w-[min(320px,calc(100vw-2rem))] flex-col gap-2`}
     >
       {items.map((item) => (
         <div

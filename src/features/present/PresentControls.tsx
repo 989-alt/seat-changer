@@ -79,7 +79,7 @@ export function PresentControls({
         data-present="status"
         data-tone={status?.tone}
         aria-live="polite"
-        className={`h-9 min-w-[12rem] flex-1 truncate text-ink ${statusLook}`}
+        className={`h-9 min-w-[min(100%,34rem)] flex-1 truncate text-ink ${statusLook}`}
       >
         {status?.text ?? ''}
       </p>

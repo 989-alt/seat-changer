@@ -78,4 +78,11 @@ describe('PresentControls', () => {
     await userEvent.click(screen.getByRole('button', { name: '전체 화면' }));
     expect(request).toHaveBeenCalledTimes(1);
   });
+
+  it('상태 칸은 가장 긴 안내 문구가 들어가는 폭을 최소로 보장한다(좁으면 버튼이 다음 줄로 간다)', () => {
+    render(<PresentControls {...props()} />);
+    const status = document.querySelector('[data-present="status"]')!;
+    expect(status.className).toContain('min-w-[min(100%,34rem)]');
+    expect(status.className).not.toContain('min-w-[12rem]');
+  });
 });

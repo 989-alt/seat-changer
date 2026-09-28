@@ -99,4 +99,16 @@ describe('ToastHost', () => {
       });
     }).not.toThrow();
   });
+
+  it('placement 기본값은 우하단이고 top-right면 우상단에 띄운다', () => {
+    const { container, unmount } = render(<ToastHost />);
+    const host = () => container.querySelector('[role="status"]')!;
+    expect(host().className).toContain('bottom-4');
+    expect(host().className).not.toContain('top-4');
+    unmount();
+    const top = render(<ToastHost placement="top-right" />);
+    const topHost = top.container.querySelector('[role="status"]')!;
+    expect(topHost.className).toContain('top-4');
+    expect(topHost.className).not.toContain('bottom-4');
+  });
 });
