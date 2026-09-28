@@ -33,6 +33,13 @@ export interface DrawSequenceOptions {
   data: ClassData;
   /** 배치가 확정됐을 때 저장을 요청한다(스토어의 recordAssignment). */
   onAssigned: (mapping: Assignment, historyFallback: boolean) => void;
+  /** 자리 교환 결과 저장(스토어의 replaceLastAssignment). 이력은 늘리지 않는다. */
+  onSwapped?: (mapping: Assignment) => void;
+  /**
+   * 발표 화면을 열 때 보여 줄 지난 배치(loadableLastAssignment를 통과한 것).
+   * 첫 렌더에만 읽는다. 있으면 전부 공개된 상태로 시작하고, 규칙 위반을 현재 규칙으로 계산한다.
+   */
+  initialMapping?: Assignment | null;
   /** 기본값은 setTimeout. 테스트에서는 즉시 끝나는 함수를 넣는다. */
   delay?: (ms: number) => Promise<void>;
   /** 깜빡임 좌석 선택에만 쓴다. 배치 자체의 난수는 randomizeSeats 안에 있다. */
@@ -95,6 +102,8 @@ function seatOf(mapping: Assignment, name: string): number {
 export function useDrawSequence({
   data,
   onAssigned,
+  onSwapped,
+  initialMapping = null,
   delay = sleep,
   rng = Math.random,
   reducedMotion = false,
@@ -103,9 +112,11 @@ export function useDrawSequence({
 }: DrawSequenceOptions): DrawSequence {
   const [phase, setPhase] = useState<DrawPhase>('idle');
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [mapping, setMappingState] = useState<Assignment | null>(null);
-  const [revealed, setRevealedState] = useState<'all' | number[]>([]);
-  const [violations, setViolations] = useState<Violation[]>([]);
+  const [mapping, setMappingState] = useState<Assignment | null>(initialMapping);
+  const [revealed, setRevealedState] = useState<'all' | number[]>(initialMapping ? 'all' : []);
+  const [violations, setViolations] = useState<Violation[]>(() =>
+    initialMapping ? verifyAssignment(initialMapping, data) : [],
+  );
   const [failure, setFailure] = useState<DrawFailure | null>(null);
   const [historyFallback, setHistoryFallback] = useState(false);
   const [confetti, setConfetti] = useState(false);
@@ -116,8 +127,8 @@ export function useDrawSequence({
 
   // 비동기 시퀀스 안에서는 최신 값을 state로 읽을 수 없어 ref를 함께 둔다.
   const runningRef = useRef(false);
-  const mappingRef = useRef<Assignment | null>(null);
-  const revealedRef = useRef<'all' | number[]>([]);
+  const mappingRef = useRef<Assignment | null>(initialMapping);
+  const revealedRef = useRef<'all' | number[]>(initialMapping ? 'all' : []);
 
   const setMapping = useCallback((next: Assignment | null) => {
     mappingRef.current = next;
@@ -287,6 +298,7 @@ export function useDrawSequence({
   /**
    * 두 좌석의 학생을 맞바꾼다. 한쪽이 빈 자리면 학생을 그 자리로 옮기고
    * 원래 자리를 비운다 (legacy/js/screens/student-screen.js:370-377과 같은 규칙).
+   * 저장은 onSwapped로, 이력은 늘리지 않는다.
    */
   const swap = useCallback(
     (seatA: number, seatB: number) => {
@@ -300,9 +312,11 @@ export function useDrawSequence({
       if (nameB) next[seatA] = nameB;
       else delete next[seatA];
       setMapping(next);
-      onAssigned(next, false);
+      // 뽑기 직후의 위반 목록이 교환 뒤에도 남으면 틀린 안내가 된다.
+      setViolations(verifyAssignment(next, data));
+      onSwapped?.(next);
     },
-    [onAssigned, setMapping],
+    [data, onSwapped, setMapping],
   );
 
   const remaining =

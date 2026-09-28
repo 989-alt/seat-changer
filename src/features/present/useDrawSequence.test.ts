@@ -149,12 +149,14 @@ describe('useDrawSequence', () => {
     expect(onAssigned).not.toHaveBeenCalled();
   });
 
-  it('swap은 두 좌석의 학생을 맞바꾸고 저장을 요청한다', async () => {
+  it('swap은 두 좌석의 학생을 맞바꾸고 onSwapped로 저장을 요청한다(이력을 쌓는 onAssigned는 부르지 않는다)', async () => {
     const onAssigned = vi.fn();
+    const onSwapped = vi.fn();
     const { result } = renderHook(() =>
       useDrawSequence({
         data: makeData(),
         onAssigned,
+        onSwapped,
         delay: async () => {},
         reducedMotion: true,
         randomize: async () => okResult(),
@@ -172,8 +174,57 @@ describe('useDrawSequence', () => {
 
     expect(result.current.mapping?.[0]).toBe('바다');
     expect(result.current.mapping?.[5]).toBe('가람');
-    expect(onAssigned).toHaveBeenCalledTimes(1);
-    expect(onAssigned.mock.calls[0]?.[1]).toBe(false);
+    expect(onAssigned).not.toHaveBeenCalled();
+    expect(onSwapped).toHaveBeenCalledTimes(1);
+    expect(onSwapped).toHaveBeenCalledWith({ ...FULL, 0: '바다', 5: '가람' });
+  });
+
+  it('initialMapping이 있으면 전부 공개된 상태로 시작하고 바로 교환할 수 있다', () => {
+    const onAssigned = vi.fn();
+    const onSwapped = vi.fn();
+    const { result } = renderHook(() =>
+      useDrawSequence({
+        data: makeData(),
+        onAssigned,
+        onSwapped,
+        initialMapping: FULL,
+        reducedMotion: true,
+        playSound: vi.fn(),
+      }),
+    );
+
+    expect(result.current.mapping).toEqual(FULL);
+    expect(result.current.revealedSeats).toBe('all');
+    expect(result.current.phase).toBe('idle');
+    expect(result.current.drawId).toBe(0);
+
+    act(() => {
+      result.current.swap(1, 2);
+    });
+    expect(result.current.mapping?.[1]).toBe('다솜');
+    expect(result.current.mapping?.[2]).toBe('나래');
+    expect(onSwapped).toHaveBeenCalledTimes(1);
+    expect(onAssigned).not.toHaveBeenCalled();
+  });
+
+  it('initialMapping의 규칙 위반을 현재 규칙으로 계산하고, 교환 뒤 다시 계산한다', () => {
+    const data = makeData({ fixedSeats: [{ studentName: '가람', seatIndex: 5 }] });
+    const { result } = renderHook(() =>
+      useDrawSequence({
+        data,
+        onAssigned: vi.fn(),
+        onSwapped: vi.fn(),
+        initialMapping: FULL,
+        reducedMotion: true,
+        playSound: vi.fn(),
+      }),
+    );
+
+    expect(result.current.violations.map((v) => v.kind)).toContain('fixed');
+    act(() => {
+      result.current.swap(0, 5);
+    });
+    expect(result.current.violations).toEqual([]);
   });
 
   it('빈 자리와의 교환은 학생을 옮기고 원래 자리를 비운다', async () => {
