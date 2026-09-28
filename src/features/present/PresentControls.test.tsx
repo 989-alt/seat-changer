@@ -20,6 +20,7 @@ function props(patch: Partial<PresentControlsProps> = {}): PresentControlsProps 
     onToggleSound: vi.fn(),
     onSaveImage: vi.fn(),
     onPrint: vi.fn(),
+    violations: [],
     ...patch,
   };
 }
@@ -84,5 +85,37 @@ describe('PresentControls', () => {
     const status = document.querySelector('[data-present="status"]')!;
     expect(status.className).toContain('min-w-[min(100%,34rem)]');
     expect(status.className).not.toContain('min-w-[12rem]');
+  });
+
+  it('규칙 위반이 없으면 위반 배지도 없다', () => {
+    render(<PresentControls {...props()} />);
+    expect(screen.queryByRole('button', { name: /규칙 위반/ })).toBeNull();
+  });
+
+  it('규칙 위반은 이름 없이 건수만 보이고, 누르면 목록을 막대 위에 펼친다', async () => {
+    const message = '분리 위반: 가람 - 나래 (거리 1, 최소 2)';
+    render(<PresentControls {...props({ violations: [message] })} />);
+    const badge = screen.getByRole('button', { name: '규칙 위반 1건' });
+    expect(badge).toHaveAttribute('aria-expanded', 'false');
+    // 펼치기 전에는 학생 이름이 DOM에 없다
+    expect(document.body.textContent).not.toContain('가람');
+    expect(document.querySelector('[data-present="violations"]')).toBeNull();
+
+    await userEvent.click(badge);
+    expect(badge).toHaveAttribute('aria-expanded', 'true');
+    expect(document.querySelector('[data-present="violations"]')).toHaveTextContent(message);
+
+    await userEvent.click(badge);
+    expect(document.querySelector('[data-present="violations"]')).toBeNull();
+  });
+
+  it('위반이 사라지면 펼침 상태도 초기화된다', async () => {
+    const message = '분리 위반: 가람 - 나래 (거리 1, 최소 2)';
+    const { rerender } = render(<PresentControls {...props({ violations: [message] })} />);
+    await userEvent.click(screen.getByRole('button', { name: '규칙 위반 1건' }));
+    rerender(<PresentControls {...props({ violations: [] })} />);
+    rerender(<PresentControls {...props({ violations: [message] })} />);
+    expect(document.querySelector('[data-present="violations"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('가람');
   });
 });

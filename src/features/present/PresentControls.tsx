@@ -2,6 +2,8 @@
 // 뽑는 동안에는 언마운트하지 않고 가려서(invisible) 높이를 지킨다. 막대가 빠졌다 들어오면
 // 배치도 영역이 커졌다 작아지며 배율이 흔들린다. 상태 칸도 높이가 고정이라 문구가 바뀌어도
 // 배치도가 움직이지 않는다(첫 자리를 누를 때 자리가 움직이던 문제).
+// 규칙 위반은 이름 없이 건수 배지로만 보이고, 누르면 막대 위에 겹쳐 펼친다(학생이 보는 화면에 규칙을 드러내지 않는다).
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Eye,
@@ -11,6 +13,7 @@ import {
   Play,
   Printer,
   RotateCcw,
+  TriangleAlert,
   UserRound,
   Volume2,
   VolumeX,
@@ -27,6 +30,8 @@ export interface PresentStatus {
 export interface PresentControlsProps {
   classLabel: string;
   status: PresentStatus | null;
+  /** 규칙 위반 문구. 발표 화면은 이름을 기본으로 드러내지 않고 건수 배지만 보인다(누르면 펼침). */
+  violations: string[];
   /** 카운트다운·셔플·줄 공개 중. 막대를 가리되 자리는 지킨다. */
   hidden: boolean;
   hasResult: boolean;
@@ -49,6 +54,7 @@ const ICON = 'pointer-events-none';
 export function PresentControls({
   classLabel,
   status,
+  violations,
   hidden,
   hasResult,
   running,
@@ -65,6 +71,12 @@ export function PresentControls({
   onPrint,
 }: PresentControlsProps) {
   const fullscreen = useFullscreen();
+  // 위반 목록은 교사가 배지를 눌렀을 때만 펼친다. 학생이 보는 화면에 규칙(학생 이름)이
+  // 기본으로 뜨지 않게 하려는 것이다. 위반이 0건이 되면 다음에 다시 생겨도 접힌 채로 시작한다.
+  const [showViolations, setShowViolations] = useState(false);
+  useEffect(() => {
+    if (violations.length === 0) setShowViolations(false);
+  }, [violations.length]);
   const statusLook =
     status?.tone === 'lottery' ? 'font-hand text-[30px] font-bold leading-9' : 'font-body text-[15px] font-bold leading-9';
   return (
@@ -84,6 +96,32 @@ export function PresentControls({
         {status?.text ?? ''}
       </p>
       <div className="flex flex-wrap items-center gap-2">
+        {violations.length > 0 && (
+          <div className="relative">
+            <WoodButton
+              variant="secondary"
+              aria-expanded={showViolations}
+              onClick={() => setShowViolations((open) => !open)}
+              icon={<TriangleAlert size={18} aria-hidden="true" className={ICON} />}
+            >
+              규칙 위반 {violations.length}건
+            </WoodButton>
+            {showViolations && (
+              // 막대 위에 겹쳐 띄운다. 흐름 밖(absolute)이라 배치도 크기가 바뀌지 않는다.
+              <section
+                data-present="violations"
+                className="absolute bottom-full left-0 z-40 mb-2 w-[min(28rem,90vw)] rounded-note bg-paper p-4 text-ink shadow-card"
+              >
+                <h2 className="font-hand text-[20px] font-bold">규칙 위반 {violations.length}건</h2>
+                <ul className="mt-2 list-disc pl-6 font-body text-[15px]">
+                  {violations.map((message, i) => (
+                    <li key={`${i}-${message}`}>{message}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
         <WoodButton
           variant="primary"
           disabled={running}

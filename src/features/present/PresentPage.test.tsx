@@ -168,7 +168,9 @@ describe('PresentPage', () => {
     expect(saved.lastAssignment?.mapping).toEqual({ 0: '나래', 1: '가람' });
     expect(saved.lastAssignment?.timestamp).toBe(1);
     expect(saved.assignmentHistory).toHaveLength(0);
-    expect(statusText()).toBe('두 자리를 차례로 누르면 서로 바뀝니다');
+    // 교환 완료 알림은 토스트가 아니라 상태 칸에 잠깐 뜬다
+    expect(statusText()).toBe('가람 - 나래 자리를 바꿨습니다.');
+    expect(screen.queryByText('가람 - 나래 자리를 바꿨습니다.', { selector: '[data-cork="toast"] *' })).toBeNull();
   });
 
   it('발표 화면은 고정 자리를 드러내지 않는다', () => {
@@ -208,6 +210,20 @@ describe('PresentPage', () => {
     act(() => {
       window.dispatchEvent(new Event('afterprint'));
     });
+  });
+
+  it('지난 배치가 규칙을 어기면 이름을 드러내지 않고 막대의 배지로만 알린다', () => {
+    useAppStore.setState({
+      data: makeData({
+        separationRules: [{ studentA: '가람', studentB: '나래', minDistance: 2 }],
+        lastAssignment: LAST,
+      }),
+    });
+    render(<PresentPage />);
+
+    expect(screen.getByRole('button', { name: '규칙 위반 1건' })).toBeInTheDocument();
+    expect(document.querySelector('[data-present="violations"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('분리 위반');
   });
 });
 

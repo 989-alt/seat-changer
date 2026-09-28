@@ -68,6 +68,9 @@ function groupsFromMapping(mapping: Assignment, data: ClassData): string[][] {
 /** 지난 배치를 불러오지 못했을 때의 안내(개선 스펙 3-4). */
 const STALE_NOTICE = '명단이나 배치가 바뀌어 지난 배치는 불러오지 않았습니다.';
 
+/** 교환 완료 알림을 상태 칸에 보여 주는 시간(ms). 토스트는 배치도·막대를 가려서 쓰지 않는다. */
+const SWAP_NOTICE_MS = 4000;
+
 export function PresentPage() {
   const data = useAppStore((s) => s.data);
   const activeClass = useAppStore((s) => s.activeClass);
@@ -83,6 +86,7 @@ export function PresentPage() {
   const reducedMotion = useReducedMotion();
   const [muted, setMutedState] = useState(() => isMuted());
   const [swapFirst, setSwapFirst] = useState<number | null>(null);
+  const [swapNotice, setSwapNotice] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
   const [printFit, setPrintFit] = useState<PrintFit>({ orientation: 'landscape', zoom: 1 });
   const [rolesByStudent, setRolesByStudent] = useState<Record<string, string>>({});
@@ -103,6 +107,13 @@ export function PresentPage() {
     staleNotifiedRef.current = true;
     pushToast(STALE_NOTICE);
   }, [initial.stale, pushToast]);
+
+  // 교환 완료 알림은 잠깐만 보인다.
+  useEffect(() => {
+    if (!swapNotice) return;
+    const timer = setTimeout(() => setSwapNotice(null), SWAP_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [swapNotice]);
 
   // 배치도를 남는 공간에 맞춰 확대한다. offsetWidth/offsetHeight는 transform 이전의
   // 레이아웃 크기라 확대해도 값이 변하지 않으므로 되먹임 루프가 생기지 않는다.
@@ -206,9 +217,9 @@ export function PresentPage() {
       const nameB = seq.mapping?.[seat] ?? '빈 자리';
       seq.swap(swapFirst, seat);
       setSwapFirst(null);
-      pushToast(`${nameA} - ${nameB} 자리를 바꿨습니다.`);
+      setSwapNotice(`${nameA} - ${nameB} 자리를 바꿨습니다.`);
     },
-    [pushToast, seq, swapFirst],
+    [seq, swapFirst],
   );
 
   const togglePerspective = useCallback(() => {
@@ -302,14 +313,18 @@ export function PresentPage() {
     return out;
   }, [seq.spotlightSeat, swapFirst]);
 
-  // 조작 막대 상태 칸(고정 높이). 우선순위: 한 명씩 뽑기 이름 > 교환 중 안내 > 기본 안내.
+  const violationMessages = useMemo(() => seq.violations.map((v) => v.message), [seq.violations]);
+
+  // 조작 막대 상태 칸(고정 높이). 우선순위: 한 명씩 뽑기 이름 > 교환 중 안내 > 교환 완료 알림 > 기본 안내.
   const status: PresentStatus | null = seq.lotteryName
     ? { text: seq.lotteryName, tone: 'lottery' }
     : swapFirst !== null
       ? { text: `${swapFirst + 1}번 자리를 골랐습니다. 바꿀 자리를 누르세요 (같은 자리를 다시 누르면 취소)`, tone: 'hint' }
-      : canSwap
-        ? { text: '두 자리를 차례로 누르면 서로 바뀝니다', tone: 'hint' }
-        : null;
+      : swapNotice
+        ? { text: swapNotice, tone: 'hint' }
+        : canSwap
+          ? { text: '두 자리를 차례로 누르면 서로 바뀝니다', tone: 'hint' }
+          : null;
 
   const boardProps = {
     data,
@@ -362,20 +377,10 @@ export function PresentPage() {
           ToastHost가 토스트로 띄운다. 여기에 배너를 또 두면 같은 말이 두 번 나온다.
         */}
 
-        {seq.violations.length > 0 && (
-          <section data-present="violations" className="rounded-note bg-paper p-4 text-ink shadow-card">
-            <h2 className="font-hand text-[24px] font-bold">규칙 위반 {seq.violations.length}건</h2>
-            <ul className="mt-2 list-disc pl-6 font-body text-[16px]">
-              {seq.violations.map((v) => (
-                <li key={`${v.kind}-${v.message}`}>{v.message}</li>
-              ))}
-            </ul>
-          </section>
-        )}
-
         <PresentControls
           classLabel={activeClass}
           status={status}
+          violations={violationMessages}
           hidden={drawing}
           hasResult={hasResult}
           running={seq.running}

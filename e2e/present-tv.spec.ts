@@ -162,7 +162,7 @@ test('고정 자리 표시는 교사 화면에만 있고 발표 화면·인쇄�
   await expect(pins).toHaveCount(0);
 });
 
-test('1366x625에서도 교환 안내가 잘리지 않고, 교환 알림이 조작 막대를 가리지 않는다', async ({ page }) => {
+test('1366x625에서도 교환 안내와 교환 완료 알림이 상태 칸에서 잘리지 않는다', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 625 });
   await seed(page, v1);
   await page.goto('/present');
@@ -178,13 +178,10 @@ test('1366x625에서도 교환 안내가 잘리지 않고, 교환 알림이 조�
   expect(await fits()).toBe(true);
 
   await seat(page, 2).click();
-  const toast = page.locator('[data-cork="toast"]').filter({ hasText: '자리를 바꿨습니다' });
-  await expect(toast).toBeVisible();
-  const t = (await toast.boundingBox())!;
-  const bar = (await page.locator('[data-present="controls"]').boundingBox())!;
-  const overlap =
-    t.x < bar.x + bar.width && bar.x < t.x + t.width && t.y < bar.y + bar.height && bar.y < t.y + t.height;
-  expect(overlap).toBe(false);
+  // 교환 완료 알림은 토스트가 아니라 상태 칸에 뜬다(배치도·막대를 가리지 않는다)
+  await expect(status).toContainText('자리를 바꿨습니다');
+  expect(await fits()).toBe(true);
+  await expect(page.locator('[data-cork="toast"]').filter({ hasText: '자리를 바꿨습니다' })).toHaveCount(0);
 
   await page.screenshot({ path: 'test-results/present-tv-1366-swap.png' });
 });
