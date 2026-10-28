@@ -278,4 +278,61 @@ describe('useDrawSequence', () => {
     });
     expect(result.current.revealedSeats).toEqual([0, 1]);
   });
+  it('hideAll은 옮긴 배치를 그대로 두고 이름만 가린 뒤 한 명씩 공개한다(새로 뽑지 않는다)', async () => {
+    const onAssigned = vi.fn();
+    const onSwapped = vi.fn();
+    const randomize = vi.fn(async () => okResult());
+    const { result } = renderHook(() =>
+      useDrawSequence({
+        data: makeData(),
+        onAssigned,
+        onSwapped,
+        initialMapping: FULL,
+        delay: async () => {},
+        reducedMotion: true,
+        randomize,
+        playSound: vi.fn(),
+        rng: () => 0,
+      }),
+    );
+
+    act(() => {
+      result.current.swap(0, 5);
+    });
+    const moved = result.current.mapping;
+
+    act(() => {
+      result.current.hideAll();
+    });
+    expect(result.current.phase).toBe('lottery');
+    expect(result.current.revealedSeats).toEqual([]);
+    expect(result.current.mapping).toEqual(moved);
+    expect(result.current.remaining).toBe(6);
+
+    // 명단 첫 학생(가람)은 옮긴 자리(5번)에서 공개된다.
+    await act(async () => {
+      await result.current.revealOne();
+    });
+    expect(result.current.revealedSeats).toEqual([5]);
+
+    act(() => {
+      result.current.revealAll();
+    });
+    expect(result.current.revealedSeats).toBe('all');
+    expect(result.current.mapping).toEqual(moved);
+    expect(randomize).not.toHaveBeenCalled();
+    expect(onAssigned).not.toHaveBeenCalled();
+    expect(onSwapped).toHaveBeenCalledTimes(1);
+  });
+
+  it('배치가 없으면 hideAll은 아무것도 하지 않는다', () => {
+    const { result } = renderHook(() =>
+      useDrawSequence({ data: makeData(), onAssigned: vi.fn(), reducedMotion: true, playSound: vi.fn() }),
+    );
+    act(() => {
+      result.current.hideAll();
+    });
+    expect(result.current.phase).toBe('idle');
+    expect(result.current.mapping).toBeNull();
+  });
 });

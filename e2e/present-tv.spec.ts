@@ -209,3 +209,28 @@ test('1920x1080에서는 선생님 시선·전체 화면을 켜도 조작 막대
     expect(await oneRow()).toBe(true);
   }
 });
+
+test('자리를 옮긴 뒤 이름 가리기를 누르면 옮긴 배치 그대로 다시 한 명씩 공개한다', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await seed(page, v1);
+  await page.goto('/present');
+
+  await seat(page, 1).click();
+  await seat(page, 2).click();
+  await expect(seat(page, 1)).toContainText('박서준');
+
+  await page.getByRole('button', { name: /이름 가리기/ }).click();
+  const board = page.locator('[data-present="board"]');
+  await expect(board).not.toContainText('박서준');
+  await expect(board).not.toContainText('이도윤');
+  await expect(page.getByRole('button', { name: /이름 가리기/ })).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/present-hide-all.png' });
+
+  await page.getByRole('button', { name: '모두 공개' }).click();
+  await expect(seat(page, 1)).toContainText('박서준');
+  await expect(seat(page, 2)).toContainText('이도윤');
+  await page.screenshot({ path: 'test-results/present-hide-all-revealed.png' });
+
+  const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), KEY);
+  expect(saved.assignmentHistory).toHaveLength(v1.assignmentHistory.length);
+});

@@ -14,6 +14,7 @@ function props(patch: Partial<PresentControlsProps> = {}): PresentControlsProps 
     muted: false,
     onStart: vi.fn(),
     onStartLottery: vi.fn(),
+    onHideAll: vi.fn(),
     onRevealOne: vi.fn(),
     onRevealAll: vi.fn(),
     onTogglePerspective: vi.fn(),
@@ -64,6 +65,21 @@ describe('PresentControls', () => {
     expect(screen.getByRole('button', { name: '다음 학생 공개' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '모두 공개' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /한 명씩 뽑기/ })).toBeNull();
+  });
+
+  it('결과가 있으면 이름 가리기 버튼을 보여 주고 누르면 onHideAll을 부른다', async () => {
+    const onHideAll = vi.fn();
+    render(<PresentControls {...props({ onHideAll })} />);
+    await userEvent.click(screen.getByRole('button', { name: /이름 가리기/ }));
+    expect(onHideAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('결과가 없거나 한 명씩 공개 중이면 이름 가리기를 숨긴다', () => {
+    const { unmount } = render(<PresentControls {...props({ hasResult: false })} />);
+    expect(screen.queryByRole('button', { name: /이름 가리기/ })).toBeNull();
+    unmount();
+    render(<PresentControls {...props({ lottery: true })} />);
+    expect(screen.queryByRole('button', { name: /이름 가리기/ })).toBeNull();
   });
 
   it('전체 화면을 쓸 수 없는 환경에서는 버튼을 숨긴다', () => {

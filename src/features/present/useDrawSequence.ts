@@ -72,6 +72,8 @@ export interface DrawSequence {
   drawId: number;
   start: () => Promise<void>;
   startLottery: () => Promise<void>;
+  /** 지금 배치를 그대로 두고 이름만 다시 가린다. 이후 한 명씩 뽑기처럼 공개한다. */
+  hideAll: () => void;
   revealOne: () => Promise<void>;
   revealAll: () => void;
   swap: (seatA: number, seatB: number) => void;
@@ -235,6 +237,17 @@ export function useDrawSequence({
     }
   }, [runToAssignment]);
 
+  // 선생님이 자리를 옮긴 뒤 학생들에게 다시 공개하려고 쓴다. 새로 뽑지 않으므로
+  // 배치·이력·위반 목록은 그대로다.
+  const hideAll = useCallback(() => {
+    if (runningRef.current || !mappingRef.current) return;
+    setSpotlightSeat(null);
+    setLotteryName(null);
+    setConfetti(false);
+    setRevealed([]);
+    setPhase('lottery');
+  }, [setRevealed]);
+
   const revealOne = useCallback(async () => {
     if (runningRef.current) return;
     const current = mappingRef.current;
@@ -340,6 +353,7 @@ export function useDrawSequence({
     drawId,
     start,
     startLottery,
+    hideAll,
     revealOne,
     revealAll,
     swap,

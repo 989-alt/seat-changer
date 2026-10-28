@@ -241,6 +241,12 @@ export function PresentPage() {
     void seq.startLottery();
   }, [seq]);
 
+  const hideAllNames = useCallback(() => {
+    setSwapFirst(null);
+    setSwapNotice(null);
+    seq.hideAll();
+  }, [seq]);
+
   const togglePerspective = useCallback(() => {
     update({ viewPerspective: teacherView ? 'student' : 'teacher' });
   }, [teacherView, update]);
@@ -408,6 +414,7 @@ export function PresentPage() {
           muted={muted}
           onStart={startDraw}
           onStartLottery={startLotteryDraw}
+          onHideAll={hideAllNames}
           onRevealOne={() => void seq.revealOne()}
           onRevealAll={seq.revealAll}
           onTogglePerspective={togglePerspective}

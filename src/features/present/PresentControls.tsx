@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Eye,
+  EyeOff,
   ImageDown,
   Maximize,
   Minimize,
@@ -41,6 +42,8 @@ export interface PresentControlsProps {
   muted: boolean;
   onStart: () => void;
   onStartLottery: () => void;
+  /** 모두 공개된 배치의 이름을 다시 가린다. */
+  onHideAll: () => void;
   onRevealOne: () => void;
   onRevealAll: () => void;
   onTogglePerspective: () => void;
@@ -63,6 +66,7 @@ export function PresentControls({
   muted,
   onStart,
   onStartLottery,
+  onHideAll,
   onRevealOne,
   onRevealAll,
   onTogglePerspective,
@@ -91,7 +95,7 @@ export function PresentControls({
         data-present="status"
         data-tone={status?.tone}
         aria-live="polite"
-        className={`h-9 min-w-[min(100%,28rem)] flex-1 truncate text-ink ${statusLook}`}
+        className={`h-9 min-w-[min(100%,22rem)] flex-1 truncate text-ink ${statusLook}`}
       >
         {status?.text ?? ''}
       </p>
@@ -154,6 +158,16 @@ export function PresentControls({
             icon={<UserRound size={18} aria-hidden="true" className={ICON} />}
           >
             한 명씩 뽑기
+          </WoodButton>
+        )}
+        {hasResult && !lottery && (
+          <WoodButton
+            variant="secondary"
+            disabled={running}
+            onClick={onHideAll}
+            icon={<EyeOff size={18} aria-hidden="true" className={ICON} />}
+          >
+            이름 가리기
           </WoodButton>
         )}
 
